@@ -22,6 +22,10 @@ There are no tests and no linter. To check a change, compile the environments it
 
 If upload can't find the port: hold BOOT, tap RESET, release BOOT, upload again, then press RESET.
 
+### Viewing the web preview headlessly
+
+To check the browser preview without a display (e.g. in a cloud session), run `node web/serve.mjs` in the background, wait for `http://localhost:8000` to respond, then screenshot it with Playwright (`chromium.launch()`). Wait 1–2 s after load so the Wasm starts and the 80 ms `.device` transition settles. `#tilt` holds the tilt readout and `#name` the current effect. Each arrow key turns the board `KEY_STEP_DEG` (15°), so six presses in one direction leave it exactly edge-on and invisible; that's expected, not a rendering bug. A fresh browser context starts in the default Board view, since the view choice lives in `localStorage`.
+
 ## Architecture
 
 The design centers on running the same effect code on four hosts:
