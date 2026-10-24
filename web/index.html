@@ -13,7 +13,11 @@
     --pcb: #050505;
     --pcb-edge: rgba(255, 255, 255, 0.07);
     --silkscreen: #f2f2f2;
-    --led-off: #242424;
+    --panel: #16181b;
+    --panel-back: #0f1113;
+    --panel-edge: #2a2d32;
+    --led-off-board: #242424;
+    --led-off-matrix: #202328;
     --text: #e6e6e6;
     --muted: #8a8f98;
     --accent: #5aa9ff;
@@ -31,29 +35,45 @@
     color: var(--text);
     font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
     padding: 16px;
+    overflow-x: clip;
   }
   main { width: min(100%, 420px); display: grid; gap: 16px; }
 
-  /* The board is drawn in the same 250 x 268 coordinate space as the reference
-     artwork: a 250 x 250 PCB starting at y = 18, with the USB-C shell above it.
-     The SVG holds the parts that never change; the canvas on top draws the LEDs. */
-  .board {
-    position: relative;
-    aspect-ratio: 250 / 268;
-    margin-block: 28px;  /* room for the near edge to grow when posed in 3D */
-    transition: transform 80ms linear;
+  /* The stage is never transformed, so it stays a stable drag target even when
+     the board is edge-on. The device inside it rotates in 3D and has two faces;
+     whichever one points at the viewer is drawn. */
+  .stage {
+    perspective: 1600px;
+    margin-block: 40px;  /* room for the near edge to grow when posed in 3D */
     cursor: grab;
     touch-action: none;
     user-select: none;
   }
-  .board.dragging { cursor: grabbing; }
-  .board svg, .board canvas {
+  .stage.dragging { cursor: grabbing; }
+  .device {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 80ms linear;
+  }
+  .face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+  }
+  .face.front { transform: translateZ(0.5px); }
+  .face.back { transform: rotateY(180deg) translateZ(0.5px); }
+  .face svg, .face canvas {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
   }
-  .board svg { filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55)); }
+
+  /* Board view: the real board's 250 x 268 layout, a 250 x 250 PCB starting at
+     y = 18 with the USB-C shell above it. The SVG holds the parts that never
+     change; the canvas on top draws the LEDs. */
+  .view-board { aspect-ratio: 250 / 268; }
+  .view-board svg { filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55)); }
   .pcb { fill: var(--pcb); stroke: var(--pcb-edge); stroke-width: 0.75; }
   .pad { fill: var(--bg); stroke: url(#gold); stroke-width: 2; }
   .label {
@@ -62,10 +82,25 @@
     letter-spacing: 0.1px;
   }
 
+  /* Matrix view: a plain panel of round LEDs, not tied to this board. */
+  .view-matrix { aspect-ratio: 1; }
+  .view-matrix svg { display: none; }
+  .view-matrix .face {
+    border: 1px solid var(--panel-edge);
+    border-radius: 14px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  }
+  .view-matrix .face.front { background: var(--panel); }
+  .view-matrix .face.back { background: var(--panel-back); }
+
   .status { display: flex; justify-content: space-between; gap: 12px; }
   .name { font-weight: 600; }
   .tilt { color: var(--muted); font-variant-numeric: tabular-nums; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  .segmented { display: inline-flex; }
+  .segmented button { border-radius: 0; }
+  .segmented button:first-child { border-radius: 8px 0 0 8px; }
+  .segmented button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
   button {
     font: inherit;
     color: var(--text);
@@ -75,8 +110,8 @@
     padding: 6px 12px;
     cursor: pointer;
   }
-  button:hover { border-color: var(--accent); }
-  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  button:hover { border-color: var(--accent); position: relative; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); position: relative; }
   button[hidden] { display: none; }
   .help { color: var(--muted); margin: 0; }
   .error {
@@ -93,29 +128,42 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="usb" x1="0" x2="1">
+      <stop offset="0" stop-color="#8a8c90"/>
+      <stop offset="0.15" stop-color="#e4e6e9"/>
+      <stop offset="0.5" stop-color="#b9bcc1"/>
+      <stop offset="0.85" stop-color="#eef0f2"/>
+      <stop offset="1" stop-color="#8a8c90"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffc861"/>
+      <stop offset="0.5" stop-color="#f29a1f"/>
+      <stop offset="1" stop-color="#c9740f"/>
+    </linearGradient>
+  </defs>
+</svg>
 <main>
-  <div class="board" title="Drag to tilt, double-click to level">
-    <svg viewBox="0 0 250 268" aria-hidden="true">
-      <defs>
-        <linearGradient id="usb" x1="0" x2="1">
-          <stop offset="0" stop-color="#8a8c90"/>
-          <stop offset="0.15" stop-color="#e4e6e9"/>
-          <stop offset="0.5" stop-color="#b9bcc1"/>
-          <stop offset="0.85" stop-color="#eef0f2"/>
-          <stop offset="1" stop-color="#8a8c90"/>
-        </linearGradient>
-        <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#ffc861"/>
-          <stop offset="0.5" stop-color="#f29a1f"/>
-          <stop offset="1" stop-color="#c9740f"/>
-        </linearGradient>
-      </defs>
-      <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
-      <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
-      <g id="pads"></g>
-      <text class="label" x="125" y="34" text-anchor="middle">ESP32-S3-Matrix</text>
-    </svg>
-    <canvas id="leds"></canvas>
+  <div class="stage" title="Drag to turn the board, double-click to level">
+    <div class="device view-board" id="device">
+      <div class="face front">
+        <svg viewBox="0 0 250 268" aria-hidden="true">
+          <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
+          <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
+          <g class="pads"></g>
+          <text class="label" x="125" y="34" text-anchor="middle">ESP32-S3-Matrix</text>
+        </svg>
+        <canvas id="leds"></canvas>
+      </div>
+      <div class="face back">
+        <svg viewBox="0 0 250 268" aria-hidden="true">
+          <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
+          <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
+          <g class="pads"></g>
+        </svg>
+      </div>
+    </div>
   </div>
   <div class="status">
     <span class="name" id="name">loading…</span>
@@ -124,28 +172,48 @@
   <div class="controls">
     <button id="next">Next effect</button>
     <button id="center">Level</button>
+    <div class="segmented" role="group" aria-label="View">
+      <button data-view="board">Board</button>
+      <button data-view="matrix">Matrix</button>
+    </div>
     <button id="view3d" aria-pressed="true">3D</button>
     <button id="motion" aria-pressed="false" hidden>Device tilt</button>
   </div>
-  <p class="help">drag the board or arrows/WASD to tilt · space next effect · colors at full brightness (the board caps them in config.h)</p>
+  <p class="help">drag the board (it turns all the way over) or arrows/WASD to tilt · double-click to level · space next effect · colors at full brightness (the board caps them in config.h)</p>
   <pre class="error" id="error" hidden></pre>
 </main>
 
 <script type="module">
-// Mirrors preview/preview.cpp: same keys, same tilt steps, same 33 ms frame step
-// as cfg::kFrameMs. The frame step matters because effects fade once per render.
+// Same frame step as cfg::kFrameMs. It matters because effects fade once per render.
 const FRAME_MS = 33;
-const TILT_STEP = 0.25;
+const KEY_STEP_DEG = 15;  // about 0.26 g near level, close to preview.cpp's 0.25 g steps
 
-// Board geometry in SVG units (viewBox 0 0 250 268), matching the real layout:
-// ten through-hole pads per side and the 8x8 LED grid between them.
-const VIEW_W = 250;
+// LED layouts, in each view's own units. The board view matches the real
+// board: ten through-hole pads per side and the 8x8 grid between them.
 const PAD_X = [13.5, 236.5];
 const PAD_Y0 = 31.13, PAD_PITCH = 24.78, PAD_COUNT = 10, PAD_R = 7.5;
-const LED_X0 = 29, LED_Y0 = 42.63, LED_PITCH_X = 25, LED_PITCH_Y = 26;
-const LED_W = 17, LED_H = 18, LED_R = 1.5;
+const LAYOUTS = {
+  board: {
+    viewW: 250,
+    offVar: '--led-off-board',
+    glow: 14,
+    path(ctx, x, y) {
+      ctx.roundRect(29 + x * 25, 42.63 + y * 26, 17, 18, 1.5);
+    },
+  },
+  matrix: {
+    viewW: 100,
+    offVar: '--led-off-matrix',
+    glow: 5.75,
+    path(ctx, x, y) {
+      const cell = 11.5;  // 92 units of grid inside a 4-unit inset
+      ctx.arc(4 + (x + 0.5) * cell, 4 + (y + 0.5) * cell, cell * 0.36, 0, Math.PI * 2);
+    },
+  },
+};
 
-const board = document.querySelector('.board');
+const stage = document.querySelector('.stage');
+const device = document.getElementById('device');
 const canvas = document.getElementById('leds');
 const ctx = canvas.getContext('2d');
 const nameEl = document.getElementById('name');
@@ -153,15 +221,16 @@ const tiltEl = document.getElementById('tilt');
 const errorEl = document.getElementById('error');
 const motionBtn = document.getElementById('motion');
 
-const pads = document.getElementById('pads');
-for (const cx of PAD_X) {
-  for (let i = 0; i < PAD_COUNT; i++) {
-    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('class', 'pad');
-    c.setAttribute('cx', cx);
-    c.setAttribute('cy', PAD_Y0 + i * PAD_PITCH);
-    c.setAttribute('r', PAD_R);
-    pads.append(c);
+for (const g of document.querySelectorAll('.pads')) {
+  for (const cx of PAD_X) {
+    for (let i = 0; i < PAD_COUNT; i++) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('class', 'pad');
+      c.setAttribute('cx', cx);
+      c.setAttribute('cy', PAD_Y0 + i * PAD_PITCH);
+      c.setAttribute('r', PAD_R);
+      g.append(c);
+    }
   }
 }
 
@@ -189,10 +258,6 @@ const W = mod._web_width();
 const H = mod._web_height();
 const pixelsPtr = mod._web_pixels();
 
-let tiltX = 0, tiltY = 0;
-let useMotion = false;
-const clamp = (v) => Math.max(-1, Math.min(1, v));
-
 function next() {
   mod._web_next();
   nameEl.textContent = mod.UTF8ToString(mod._web_name());
@@ -201,7 +266,72 @@ function next() {
 mod._web_select(0);
 nameEl.textContent = mod.UTF8ToString(mod._web_name());
 
+// --- board orientation ---
+
+// The board's orientation is the source of truth, as a unit quaternion
+// [w, x, y, z] in CSS's frame (x right, y down, z toward the viewer). Level
+// means lying face up with the viewer looking straight down at it. The tilt
+// the effects see is derived from it, the way the real IMU measures it.
+let q = [1, 0, 0, 0];
+let leveling = false;
+
+function qMul([aw, ax, ay, az], [bw, bx, by, bz]) {
+  return [
+    aw * bw - ax * bx - ay * by - az * bz,
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+  ];
+}
+const qNorm = (a) => { const n = Math.hypot(...a); return a.map((v) => v / n); };
+function qAxisAngle(x, y, z, rad) {
+  const n = Math.hypot(x, y, z);
+  if (!n || !rad) return [1, 0, 0, 0];
+  const s = Math.sin(rad / 2) / n;
+  return [Math.cos(rad / 2), x * s, y * s, z * s];
+}
+
+// Turn the board about a screen-space axis. Screen motion (dx, dy) maps to the
+// axis (-dy, dx, 0): moving right pushes the right edge away (down), moving
+// down pushes the bottom edge away. There are no limits, so it can roll over.
+function turn(dx, dy, rad) {
+  leveling = false;
+  q = qNorm(qMul(qAxisAngle(-dy, dx, 0, rad), q));
+}
+
+// Gravity points away from the viewer (-z). Its x/y components in the board's
+// own frame are what the accelerometer reports: +x when the right edge is
+// lower, +y when the bottom edge is lower (the convention in Effects.h). Past
+// 90 degrees they shrink again, and face down they are 0.
+function tiltFromPose() {
+  const [w, x, y, z] = q;
+  return [2 * (w * y - x * z), -2 * (y * z + w * x)];
+}
+const faceDown = () => 1 - 2 * (q[1] * q[1] + q[2] * q[2]) < 0;
+
+// Eases back to level over a few frames, through the shortest rotation.
+function stepLeveling() {
+  if (q[0] < 0) q = q.map((v) => -v);
+  q = qNorm(q.map((v, i) => v + ((i === 0 ? 1 : 0) - v) * 0.25));
+  if (q[0] > 0.99999) {
+    q = [1, 0, 0, 0];
+    leveling = false;
+  }
+}
+
+function matrix3d() {
+  const [w, x, y, z] = q;
+  return `matrix3d(${[
+    1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y), 0,
+    2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x), 0,
+    2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y), 0,
+    0, 0, 0, 1,
+  ].join(',')})`;
+}
+
 // --- input ---
+
+let useMotion = false;
 
 document.addEventListener('keydown', (e) => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -212,8 +342,7 @@ document.addEventListener('keydown', (e) => {
     ArrowDown: [0, 1], s: [0, 1],
   }[k];
   if (step && !useMotion) {
-    tiltX = clamp(tiltX + step[0] * TILT_STEP);
-    tiltY = clamp(tiltY + step[1] * TILT_STEP);
+    turn(step[0], step[1], KEY_STEP_DEG * Math.PI / 180);
   } else if (k === ' ' || k === 'n') {
     next();
   } else {
@@ -222,37 +351,40 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
+const level = () => { if (!useMotion) leveling = true; };
 document.getElementById('next').addEventListener('click', next);
-document.getElementById('center').addEventListener('click', () => { tiltX = tiltY = 0; });
+document.getElementById('center').addEventListener('click', level);
+stage.addEventListener('dblclick', level);
 
-// Mouse/touch drag, like rotating an object in a 3D viewer: dragging right
-// pushes the right edge down (+tiltX), dragging down pushes the bottom edge
-// down (+tiltY). Dragging half the board's width adds 1 g. The tilt stays
-// where you let go, the same as keyboard tilt.
+// Drag like rolling a trackball: each pointer move turns the board about the
+// axis perpendicular to that move, so the axis follows the drag. Half the
+// stage's width is a quarter turn (90 degrees, 1 g).
 let drag = null;
-board.addEventListener('pointerdown', (e) => {
+stage.addEventListener('pointerdown', (e) => {
   if (useMotion || e.button !== 0) return;
-  drag = { x: e.clientX, y: e.clientY, tiltX, tiltY, half: board.offsetWidth / 2 };
-  board.setPointerCapture(e.pointerId);
-  board.classList.add('dragging');
+  drag = { x: e.clientX, y: e.clientY, half: stage.offsetWidth / 2 };
+  stage.setPointerCapture(e.pointerId);
+  stage.classList.add('dragging');
 });
-board.addEventListener('pointermove', (e) => {
+stage.addEventListener('pointermove', (e) => {
   if (!drag) return;
-  tiltX = clamp(drag.tiltX + (e.clientX - drag.x) / drag.half);
-  tiltY = clamp(drag.tiltY + (e.clientY - drag.y) / drag.half);
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX;
+  drag.y = e.clientY;
+  turn(dx, dy, Math.hypot(dx, dy) / drag.half * (Math.PI / 2));
 });
 const endDrag = () => {
   drag = null;
-  board.classList.remove('dragging');
+  stage.classList.remove('dragging');
 };
-board.addEventListener('pointerup', endDrag);
-board.addEventListener('pointercancel', endDrag);
-board.addEventListener('dblclick', () => { if (!useMotion) tiltX = tiltY = 0; });
+stage.addEventListener('pointerup', endDrag);
+stage.addEventListener('pointercancel', endDrag);
 
 // Phone/tablet tilt. beta > 0 means the top edge is raised (bottom edge down),
 // gamma > 0 means the right edge is down, matching the +tiltY / +tiltX convention
-// in Effects.h. The vector is rotated so it stays screen-relative in landscape.
-// Browsers only deliver these events on HTTPS or localhost.
+// in Effects.h. The vector is rotated so it stays screen-relative in landscape,
+// then turned into a board pose with that tilt. Browsers only deliver these
+// events on HTTPS or localhost.
 const hasReading = (e) => e.beta != null && e.gamma != null;
 let gotReading = false;
 
@@ -263,8 +395,10 @@ function onOrientation(e) {
   const dx = Math.sin(e.gamma * rad);
   const dy = Math.sin(e.beta * rad);
   const a = (screen.orientation?.angle ?? 0) * rad;
-  tiltX = clamp(dx * Math.cos(a) + dy * Math.sin(a));
-  tiltY = clamp(-dx * Math.sin(a) + dy * Math.cos(a));
+  const tx = dx * Math.cos(a) + dy * Math.sin(a);
+  const ty = -dx * Math.sin(a) + dy * Math.cos(a);
+  leveling = false;
+  q = qAxisAngle(-ty, tx, 0, Math.asin(Math.min(1, Math.hypot(tx, ty))));
 }
 
 function setMotion(on) {
@@ -304,31 +438,31 @@ if ('DeviceOrientationEvent' in window && window.isSecureContext) {
   });
 }
 
-// --- 3D board pose ---
+// --- view: realistic board or plain matrix, remembered per browser ---
 
-// The board rotates about one axis, perpendicular to the tilt direction, by an
-// angle from the tilt magnitude (in g, so asin gives the real angle). That is
-// scaled so 1 g (board on edge, 90 degrees) shows as MAX_VIEW_DEG, not edge-on.
-// Two stacked rotateX/rotateY calls would shear the board at large angles.
-const MAX_VIEW_DEG = 30;
+const VIEW_KEY = 'matrix-preview.view';
+const viewButtons = document.querySelectorAll('[data-view]');
+let view = 'board';
+try {
+  if (localStorage.getItem(VIEW_KEY) === 'matrix') view = 'matrix';
+} catch {}
+
+function setView(v) {
+  view = v;
+  device.classList.toggle('view-board', v === 'board');
+  device.classList.toggle('view-matrix', v === 'matrix');
+  for (const b of viewButtons) b.setAttribute('aria-pressed', b.dataset.view === v);
+  resize();
+  try { localStorage.setItem(VIEW_KEY, v); } catch {}
+}
+for (const b of viewButtons) b.addEventListener('click', () => setView(b.dataset.view));
+
 const view3dBtn = document.getElementById('view3d');
 let view3d = true;
-
 view3dBtn.addEventListener('click', () => {
   view3d = !view3d;
   view3dBtn.setAttribute('aria-pressed', view3d);
-  if (!view3d) board.style.transform = '';
 });
-
-function poseBoard() {
-  if (!view3d) return;
-  const g = Math.min(1, Math.hypot(tiltX, tiltY));
-  const deg = Math.asin(g) / (Math.PI / 2) * MAX_VIEW_DEG;
-  // Right edge down is +rotateY, bottom edge down is -rotateX, so the axis is (-tiltY, tiltX).
-  board.style.transform = g > 0
-    ? `perspective(1600px) rotate3d(${-tiltY}, ${tiltX}, 0, ${deg}deg)`
-    : '';
-}
 
 // --- drawing ---
 
@@ -337,36 +471,38 @@ function resize() {
   canvas.height = Math.round(canvas.clientHeight * devicePixelRatio);
 }
 addEventListener('resize', resize);
-resize();
+setView(view);
 
-const ledOff = getComputedStyle(document.documentElement).getPropertyValue('--led-off');
+const rootStyle = getComputedStyle(document.documentElement);
 
 // Each LED is its unlit package, with the lit color added on top ('lighter'),
 // so dim trail pixels fade into the package instead of to black.
 function draw() {
+  const layout = LAYOUTS[view];
   const px = mod.HEAPU8.subarray(pixelsPtr, pixelsPtr + W * H * 3);
-  const s = canvas.width / VIEW_W;
+  const s = canvas.width / layout.viewW;
+  const off = rootStyle.getPropertyValue(layout.offVar);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(s, 0, 0, s, 0, 0);
-  ctx.clearRect(0, 0, VIEW_W, canvas.height / s);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 3;
       const [cr, cg, cb] = [px[i], px[i + 1], px[i + 2]];
       const level = Math.max(cr, cg, cb) / 255;
-      const lx = LED_X0 + x * LED_PITCH_X, ly = LED_Y0 + y * LED_PITCH_Y;
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.shadowBlur = 0;
-      ctx.fillStyle = ledOff;
+      ctx.fillStyle = off;
       ctx.beginPath();
-      ctx.roundRect(lx, ly, LED_W, LED_H, LED_R);
+      layout.path(ctx, x, y);
       ctx.fill();
 
       if (level > 0.02) {
         ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
         ctx.shadowColor = ctx.fillStyle;
-        ctx.shadowBlur = 14 * s * level;  // shadowBlur is in device pixels
+        ctx.shadowBlur = layout.glow * s * level;  // shadowBlur is in device pixels
         ctx.fill();
       }
     }
@@ -374,6 +510,11 @@ function draw() {
   ctx.globalCompositeOperation = 'source-over';
   ctx.shadowBlur = 0;
 }
+
+const signed = (v) => {
+  const r = Math.round(v * 100) / 100 || 0;  // || 0 turns -0 into 0
+  return `${r >= 0 ? '+' : ''}${r.toFixed(2)}`;
+};
 
 // Effect time advances at most 100 ms per frame, so a backgrounded tab doesn't
 // hand Marble a multi-second dt when it comes back.
@@ -383,10 +524,12 @@ function tick(now) {
     nextFrame = now + FRAME_MS;
     clock += lastNow == null ? 0 : Math.min(now - lastNow, 100);
     lastNow = now;
+    if (leveling) stepLeveling();
+    const [tiltX, tiltY] = tiltFromPose();
     mod._web_render(Math.round(clock) >>> 0, tiltX, tiltY);
     draw();
-    poseBoard();
-    tiltEl.textContent = `tilt x=${tiltX >= 0 ? '+' : ''}${tiltX.toFixed(2)} y=${tiltY >= 0 ? '+' : ''}${tiltY.toFixed(2)}`;
+    device.style.transform = view3d ? matrix3d() : '';
+    tiltEl.textContent = `tilt x=${signed(tiltX)} y=${signed(tiltY)}${faceDown() ? ' · face down' : ''}`;
   }
   requestAnimationFrame(tick);
 }
