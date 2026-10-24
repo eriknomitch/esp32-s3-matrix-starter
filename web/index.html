@@ -7,10 +7,13 @@
 <link rel="icon" href="data:,">
 <style>
   :root {
-    --bg: #0e0f11;
-    --board: #16181b;
-    --board-edge: #2a2d32;
-    --led-off: #202328;
+    --bg: #15171a;
+    --surface: #1d2024;
+    --surface-edge: #30343a;
+    --pcb: #050505;
+    --pcb-edge: rgba(255, 255, 255, 0.07);
+    --silkscreen: #f2f2f2;
+    --led-off: #242424;
     --text: #e6e6e6;
     --muted: #8a8f98;
     --accent: #5aa9ff;
@@ -29,17 +32,36 @@
     font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
     padding: 16px;
   }
-  main { width: min(100%, 440px); display: grid; gap: 16px; }
+  main { width: min(100%, 420px); display: grid; gap: 16px; }
+
+  /* The board is drawn in the same 250 x 268 coordinate space as the reference
+     artwork: a 250 x 250 PCB starting at y = 18, with the USB-C shell above it.
+     The SVG holds the parts that never change; the canvas on top draws the LEDs. */
   .board {
-    background: var(--board);
-    border: 1px solid var(--board-edge);
-    border-radius: 14px;
-    padding: 4px;
+    position: relative;
+    aspect-ratio: 250 / 268;
     margin-block: 28px;  /* room for the near edge to grow when posed in 3D */
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
     transition: transform 80ms linear;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
-  canvas { display: block; width: 100%; aspect-ratio: 1; }
+  .board.dragging { cursor: grabbing; }
+  .board svg, .board canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .board svg { filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55)); }
+  .pcb { fill: var(--pcb); stroke: var(--pcb-edge); stroke-width: 0.75; }
+  .pad { fill: var(--bg); stroke: url(#gold); stroke-width: 2; }
+  .label {
+    fill: var(--silkscreen);
+    font: 600 11px system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.1px;
+  }
+
   .status { display: flex; justify-content: space-between; gap: 12px; }
   .name { font-weight: 600; }
   .tilt { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -47,8 +69,8 @@
   button {
     font: inherit;
     color: var(--text);
-    background: var(--board);
-    border: 1px solid var(--board-edge);
+    background: var(--surface);
+    border: 1px solid var(--surface-edge);
     border-radius: 8px;
     padding: 6px 12px;
     cursor: pointer;
@@ -72,7 +94,29 @@
 </head>
 <body>
 <main>
-  <div class="board"><canvas id="leds"></canvas></div>
+  <div class="board" title="Drag to tilt, double-click to level">
+    <svg viewBox="0 0 250 268" aria-hidden="true">
+      <defs>
+        <linearGradient id="usb" x1="0" x2="1">
+          <stop offset="0" stop-color="#8a8c90"/>
+          <stop offset="0.15" stop-color="#e4e6e9"/>
+          <stop offset="0.5" stop-color="#b9bcc1"/>
+          <stop offset="0.85" stop-color="#eef0f2"/>
+          <stop offset="1" stop-color="#8a8c90"/>
+        </linearGradient>
+        <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffc861"/>
+          <stop offset="0.5" stop-color="#f29a1f"/>
+          <stop offset="1" stop-color="#c9740f"/>
+        </linearGradient>
+      </defs>
+      <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
+      <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
+      <g id="pads"></g>
+      <text class="label" x="125" y="34" text-anchor="middle">ESP32-S3-Matrix</text>
+    </svg>
+    <canvas id="leds"></canvas>
+  </div>
   <div class="status">
     <span class="name" id="name">loading…</span>
     <span class="tilt" id="tilt"></span>
@@ -83,7 +127,7 @@
     <button id="view3d" aria-pressed="true">3D</button>
     <button id="motion" aria-pressed="false" hidden>Device tilt</button>
   </div>
-  <p class="help">arrows/WASD tilt · space next effect · colors at full brightness (the board caps them in config.h)</p>
+  <p class="help">drag the board or arrows/WASD to tilt · space next effect · colors at full brightness (the board caps them in config.h)</p>
   <pre class="error" id="error" hidden></pre>
 </main>
 
@@ -93,12 +137,33 @@
 const FRAME_MS = 33;
 const TILT_STEP = 0.25;
 
+// Board geometry in SVG units (viewBox 0 0 250 268), matching the real layout:
+// ten through-hole pads per side and the 8x8 LED grid between them.
+const VIEW_W = 250;
+const PAD_X = [13.5, 236.5];
+const PAD_Y0 = 31.13, PAD_PITCH = 24.78, PAD_COUNT = 10, PAD_R = 7.5;
+const LED_X0 = 29, LED_Y0 = 42.63, LED_PITCH_X = 25, LED_PITCH_Y = 26;
+const LED_W = 17, LED_H = 18, LED_R = 1.5;
+
+const board = document.querySelector('.board');
 const canvas = document.getElementById('leds');
 const ctx = canvas.getContext('2d');
 const nameEl = document.getElementById('name');
 const tiltEl = document.getElementById('tilt');
 const errorEl = document.getElementById('error');
 const motionBtn = document.getElementById('motion');
+
+const pads = document.getElementById('pads');
+for (const cx of PAD_X) {
+  for (let i = 0; i < PAD_COUNT; i++) {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('class', 'pad');
+    c.setAttribute('cx', cx);
+    c.setAttribute('cy', PAD_Y0 + i * PAD_PITCH);
+    c.setAttribute('r', PAD_R);
+    pads.append(c);
+  }
+}
 
 function showError(text) {
   errorEl.textContent = text;
@@ -159,6 +224,30 @@ document.addEventListener('keydown', (e) => {
 
 document.getElementById('next').addEventListener('click', next);
 document.getElementById('center').addEventListener('click', () => { tiltX = tiltY = 0; });
+
+// Mouse/touch drag, like rotating an object in a 3D viewer: dragging right
+// pushes the right edge down (+tiltX), dragging down pushes the bottom edge
+// down (+tiltY). Dragging half the board's width adds 1 g. The tilt stays
+// where you let go, the same as keyboard tilt.
+let drag = null;
+board.addEventListener('pointerdown', (e) => {
+  if (useMotion || e.button !== 0) return;
+  drag = { x: e.clientX, y: e.clientY, tiltX, tiltY, half: board.offsetWidth / 2 };
+  board.setPointerCapture(e.pointerId);
+  board.classList.add('dragging');
+});
+board.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  tiltX = clamp(drag.tiltX + (e.clientX - drag.x) / drag.half);
+  tiltY = clamp(drag.tiltY + (e.clientY - drag.y) / drag.half);
+});
+const endDrag = () => {
+  drag = null;
+  board.classList.remove('dragging');
+};
+board.addEventListener('pointerup', endDrag);
+board.addEventListener('pointercancel', endDrag);
+board.addEventListener('dblclick', () => { if (!useMotion) tiltX = tiltY = 0; });
 
 // Phone/tablet tilt. beta > 0 means the top edge is raised (bottom edge down),
 // gamma > 0 means the right edge is down, matching the +tiltY / +tiltX convention
@@ -222,7 +311,6 @@ if ('DeviceOrientationEvent' in window && window.isSecureContext) {
 // scaled so 1 g (board on edge, 90 degrees) shows as MAX_VIEW_DEG, not edge-on.
 // Two stacked rotateX/rotateY calls would shear the board at large angles.
 const MAX_VIEW_DEG = 30;
-const board = document.querySelector('.board');
 const view3dBtn = document.getElementById('view3d');
 let view3d = true;
 
@@ -245,40 +333,45 @@ function poseBoard() {
 // --- drawing ---
 
 function resize() {
-  const size = Math.round(canvas.clientWidth * devicePixelRatio);
-  canvas.width = canvas.height = size;
+  canvas.width = Math.round(canvas.clientWidth * devicePixelRatio);
+  canvas.height = Math.round(canvas.clientHeight * devicePixelRatio);
 }
 addEventListener('resize', resize);
 resize();
 
 const ledOff = getComputedStyle(document.documentElement).getPropertyValue('--led-off');
 
+// Each LED is its unlit package, with the lit color added on top ('lighter'),
+// so dim trail pixels fade into the package instead of to black.
 function draw() {
   const px = mod.HEAPU8.subarray(pixelsPtr, pixelsPtr + W * H * 3);
-  // Inset the grid so the outer LEDs' glow isn't clipped at the canvas edge.
-  const inset = canvas.width * 0.04;
-  const cell = (canvas.width - 2 * inset) / W;
-  const r = cell * 0.36;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const s = canvas.width / VIEW_W;
+  ctx.setTransform(s, 0, 0, s, 0, 0);
+  ctx.clearRect(0, 0, VIEW_W, canvas.height / s);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 3;
       const [cr, cg, cb] = [px[i], px[i + 1], px[i + 2]];
       const level = Math.max(cr, cg, cb) / 255;
-      const cx = inset + (x + 0.5) * cell, cy = inset + (y + 0.5) * cell;
+      const lx = LED_X0 + x * LED_PITCH_X, ly = LED_Y0 + y * LED_PITCH_Y;
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = ledOff;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.roundRect(lx, ly, LED_W, LED_H, LED_R);
+      ctx.fill();
+
       if (level > 0.02) {
+        ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
         ctx.shadowColor = ctx.fillStyle;
-        ctx.shadowBlur = cell * 0.5 * level;
-      } else {
-        ctx.fillStyle = ledOff;
-        ctx.shadowBlur = 0;
+        ctx.shadowBlur = 14 * s * level;  // shadowBlur is in device pixels
+        ctx.fill();
       }
-      ctx.fill();
     }
   }
+  ctx.globalCompositeOperation = 'source-over';
   ctx.shadowBlur = 0;
 }
 

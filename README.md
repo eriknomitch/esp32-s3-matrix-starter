@@ -37,7 +37,7 @@ brew install emscripten   # once
 node web/serve.mjs
 ```
 
-Open http://localhost:8000. The server compiles `lib/Effects/` to WebAssembly and rebuilds and reloads the page whenever you save a file in `lib/Effects/src/` or `web/`. Compile errors show up on the page. Keys are the same as the terminal preview. On a phone or tablet, **Device tilt** uses the device's tilt sensor, but browsers only allow that on HTTPS or localhost. `node web/serve.mjs build` builds once without serving.
+Open http://localhost:8000. The server compiles `lib/Effects/` to WebAssembly and rebuilds and reloads the page whenever you save a file in `lib/Effects/src/` or `web/`. Compile errors show up on the page. Drag the board to tilt it (double-click to level), or use the same keys as the terminal preview. On a phone or tablet, **Device tilt** uses the device's tilt sensor, but browsers only allow that on HTTPS or localhost. `node web/serve.mjs build` builds once without serving.
 
 ### 2. Full simulation: Wokwi
 
