@@ -24,7 +24,8 @@
     --error-bg: #2a1215;
     --error-text: #ffb4b4;
     --viewport-edge: #24272c;
-    --viewport-dot: rgba(255, 255, 255, 0.05);
+    --viewport-dot: rgba(255, 255, 255, 0.06);
+    --viewport-glow: rgba(255, 255, 255, 0.025);
     --hud-line: rgba(255, 255, 255, 0.16);
     --axis-x: #ff6b6b;
     --axis-y: #63d471;
@@ -40,28 +41,33 @@
     background: var(--bg);
     color: var(--text);
     font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    padding: 16px;
+    padding: 24px 16px;
     overflow-x: clip;
   }
-  main { width: min(100%, 600px); display: grid; gap: 16px; }
+  main { width: min(100%, 1120px); display: grid; gap: 20px; }
+  /* The text and buttons keep a readable column under the wide stage. */
+  .panel { width: min(100%, 600px); justify-self: center; display: grid; gap: 16px; }
 
-  /* The stage is a fixed viewport, never transformed, so it stays a stable drag
-     target even when the board is edge-on. The board is 64% of its shorter
-     side: its corners are 0.733 board widths from the center it turns about,
-     so it stays inside in every orientation and never runs into the text
-     below. The height leaves room for that text on short screens. The device
-     inside rotates in 3D and has two faces; whichever one points at the viewer
-     is drawn. */
+  /* The stage is a canvas-like viewport, never transformed, so it stays a
+     stable drag target even when the board is edge-on. It fills the window's
+     width and whatever height the text below leaves (no taller than 1.3x its
+     width, so phones don't get a tall strip of empty canvas). The board is 56% of its
+     shorter side: its corners are 0.733 board widths from the center it turns
+     about, so it stays well inside in every orientation and never runs into
+     the text. The device inside rotates in 3D and has two faces; whichever
+     one points at the viewer is drawn. */
   .stage {
     position: relative;
-    height: min(calc(100vw - 32px), 600px, max(300px, calc(100svh - 220px)));
+    height: clamp(320px, min(100svh - 250px, (100vw - 32px) * 1.3), 820px);
     container-type: size;
     display: grid;
     place-items: center;
     perspective: 1600px;
     border: 1px solid var(--viewport-edge);
     border-radius: 14px;
-    background: radial-gradient(circle, var(--viewport-dot) 1px, transparent 1.5px) center / 24px 24px;
+    background:
+      radial-gradient(circle, var(--viewport-dot) 1px, transparent 1.5px) center / 28px 28px,
+      radial-gradient(ellipse at center, var(--viewport-glow), transparent 70%);
     cursor: grab;
     touch-action: none;
     user-select: none;
@@ -69,7 +75,7 @@
   .stage.dragging { cursor: grabbing; }
   .device {
     position: relative;
-    width: 64cqmin;
+    width: 56cqmin;
     transform-style: preserve-3d;
     transition: transform 80ms linear;
   }
@@ -132,7 +138,7 @@
   /* Readouts in the viewport's top corners, clear of the board's reach. */
   .hud {
     position: absolute;
-    top: 8px;
+    top: 16px;
     z-index: 1;
     width: clamp(56px, 15cqmin, 90px);
     margin: 0;
@@ -142,8 +148,8 @@
     font-size: 11px;
     line-height: 1.3;
   }
-  .hud.pose { left: 8px; }
-  .hud.gravity { right: 8px; }
+  .hud.pose { left: 16px; }
+  .hud.gravity { right: 16px; }
   .hud canvas { width: 100%; aspect-ratio: 1; }
 
   .status { display: flex; justify-content: space-between; gap: 12px; }
@@ -306,22 +312,24 @@
       <figcaption>gravity</figcaption>
     </figure>
   </div>
-  <div class="status">
-    <span class="name" id="name">loading…</span>
-    <span class="tilt" id="tilt"></span>
-  </div>
-  <div class="controls">
-    <button id="next">Next effect</button>
-    <button id="center">Level</button>
-    <div class="segmented" role="group" aria-label="View">
-      <button data-view="board">Board</button>
-      <button data-view="matrix">Matrix</button>
+  <div class="panel">
+    <div class="status">
+      <span class="name" id="name">loading…</span>
+      <span class="tilt" id="tilt"></span>
     </div>
-    <button id="view3d" aria-pressed="true">3D</button>
-    <button id="motion" aria-pressed="false" hidden>Device tilt</button>
+    <div class="controls">
+      <button id="next">Next effect</button>
+      <button id="center">Level</button>
+      <div class="segmented" role="group" aria-label="View">
+        <button data-view="board">Board</button>
+        <button data-view="matrix">Matrix</button>
+      </div>
+      <button id="view3d" aria-pressed="true">3D</button>
+      <button id="motion" aria-pressed="false" hidden>Device tilt</button>
+    </div>
+    <p class="help">drag the board (it turns all the way over) or arrows/WASD to tilt · double-click to level · space next effect · colors at full brightness (the board caps them in config.h)</p>
+    <pre class="error" id="error" hidden></pre>
   </div>
-  <p class="help">drag the board (it turns all the way over) or arrows/WASD to tilt · double-click to level · space next effect · colors at full brightness (the board caps them in config.h)</p>
-  <pre class="error" id="error" hidden></pre>
 </main>
 
 <script type="module">
