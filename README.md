@@ -66,6 +66,22 @@ pio device monitor
 
 If upload can't find the port, enter download mode: hold **BOOT**, tap **RESET**, release **BOOT**, and upload again. After uploading this way, press RESET to start the program.
 
+## Claude cloud environment
+
+`scripts/cloud-setup.sh` installs everything the repo needs in a Claude cloud environment: Emscripten for the browser preview, PlatformIO, and `just`, with the ESP32 and native toolchains pre-warmed. Set the environment's setup script to this small bootstrap, which runs it from the checkout and skips cleanly on a revision that predates it:
+
+```sh
+#!/bin/bash
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [ -f scripts/cloud-setup.sh ]; then
+  bash scripts/cloud-setup.sh
+else
+  echo "[init] no scripts/cloud-setup.sh at this revision; skipping bootstrap"
+fi
+```
+
+The install logs go to `/tmp/setup-emscripten.log`, `/tmp/setup-pio.log`, and `/tmp/setup-just.log`.
+
 ## Project layout
 
 ```
@@ -77,6 +93,8 @@ src/imu_qmi8658.cpp Real board's IMU (SensorLib)
 src/imu_mpu6050.cpp Wokwi stand-in IMU (built only with -DSIM)
 preview/            Terminal preview
 web/                Browser preview (WebAssembly host, page, dev server)
+scripts/            Claude cloud environment setup
+justfile            Recipes for the common commands (flash, sim, web, check)
 diagram.json        Wokwi circuit
 wokwi.toml          Points Wokwi at .pio/build/sim/firmware.bin
 ```

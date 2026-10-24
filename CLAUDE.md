@@ -20,7 +20,7 @@ node web/serve.mjs build      # build the browser preview once (non-interactive 
 
 The `justfile` wraps these (`just` lists the recipes): `flash`, `monitor`, `flash-monitor`, `sim`, `tui`, `web`, and `check`, which builds `matrix`, `sim`, `preview`, and `node web/serve.mjs build` in one go.
 
-`scripts/cloud-setup.sh` is the setup script for the Claude cloud environment: it installs Emscripten, PlatformIO, and `just` (the last two via `uv tool`) and pre-warms the toolchains. It assumes root.
+`scripts/cloud-setup.sh` is the setup script for the Claude cloud environment: it installs Emscripten, PlatformIO, and `just` (the last two via `uv tool`) and pre-warms the toolchains. It assumes root. The cloud environment's own setup script is a short bootstrap that calls it (the snippet is in `README.md`).
 
 There are no tests and no linter. To check a change, compile the environments it affects. `-t exec` for the preview needs an interactive TTY and runs until `q`, so for a non-interactive check use `pio run -e preview` (build only). The ESP32 envs download the toolchain on first build, which takes several minutes.
 
