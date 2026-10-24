@@ -22,6 +22,8 @@ The demo has three effects: **marble** (tilt the board to roll a dot around), **
 
 ## Workflow
 
+If you have [just](https://github.com/casey/just) (`brew install just`), it wraps every command below. Run `just` to list the recipes: `flash`, `monitor`, `sim`, `tui`, `web`, and `check`, which compiles every target without flashing.
+
 ### 1. Quick iteration: terminal preview
 
 ```sh
