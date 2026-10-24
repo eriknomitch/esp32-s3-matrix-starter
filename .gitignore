@@ -1,0 +1,7 @@
+.pio/
+.vscode/*
+!.vscode/extensions.json
+wokwi.vcd
+web/build/
+.DS_Store
+.claude/settings.local.json

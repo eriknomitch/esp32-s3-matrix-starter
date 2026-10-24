@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "author": "ESP32-S3-Matrix starter",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-s3-devkitc-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": { "flashSize": "4", "psramSize": "2", "psramType": "quad" }
+    },
+    {
+      "type": "wokwi-led-matrix",
+      "id": "matrix",
+      "top": -40,
+      "left": 230,
+      "attrs": { "rows": "8", "cols": "8", "pixelShape": "square" }
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "imu",
+      "top": 230,
+      "left": 230,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "boot",
+      "top": 260,
+      "left": -160,
+      "attrs": { "color": "blue", "label": "BOOT (GPIO0)", "key": " ", "bounce": "0" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:14", "matrix:DIN", "green", [] ],
+    [ "esp:5V", "matrix:VDD", "red", [] ],
+    [ "esp:GND.1", "matrix:VSS", "black", [] ],
+
+    [ "esp:11", "imu:SDA", "blue", [] ],
+    [ "esp:12", "imu:SCL", "purple", [] ],
+    [ "esp:3V3.1", "imu:VCC", "red", [] ],
+    [ "esp:GND.2", "imu:GND", "black", [] ],
+
+    [ "esp:0", "boot:1.l", "blue", [] ],
+    [ "esp:GND.3", "boot:2.l", "black", [] ]
+  ],
+  "dependencies": {}
+}

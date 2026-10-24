@@ -1,0 +1,47 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+PlatformIO/Arduino starter for the Waveshare ESP32-S3-Matrix (ESP32-S3, 8×8 WS2812 matrix on GPIO14, QMI8658 IMU on I2C 11/12, BOOT button on GPIO0).
+
+## Commands
+
+There are three PlatformIO environments (`platformio.ini`); `matrix` is the default.
+
+```sh
+pio run -e matrix -t upload   # build + flash the real board (QMI8658, USB-CDC serial)
+pio device monitor            # 115200 baud, esp32_exception_decoder filter
+pio run -e sim                # build for Wokwi (MPU6050 stand-in, UART0 serial); run via VS Code F1 → "Wokwi: Start Simulator"
+pio run -e preview            # compile the effects natively for the desktop
+pio run -e preview -t exec    # build + run the terminal preview (interactive: arrows/WASD tilt, space next, q quit)
+node web/serve.mjs            # browser preview on http://localhost:8000, rebuilds + live-reloads on save (needs em++: brew install emscripten)
+node web/serve.mjs build      # build the browser preview once (non-interactive compile check of lib/Effects under Emscripten)
+```
+
+There are no tests and no linter. To check a change, compile the environments it affects. `-t exec` for the preview needs an interactive TTY and runs until `q`, so for a non-interactive check use `pio run -e preview` (build only). The ESP32 envs download the toolchain on first build, which takes several minutes.
+
+If upload can't find the port: hold BOOT, tap RESET, release BOOT, upload again, then press RESET.
+
+## Architecture
+
+The design centers on running the same effect code on four hosts:
+
+- **`lib/Effects/`** is hardware-independent. `Frame` is an 8×8 RGB framebuffer (out-of-range `set` is ignored); `Effect` is the interface (`name`, `reset`, `render(Frame&, const Inputs&)`); `Inputs` carries `ms` plus tilt in g. Do not include `Arduino.h` or other platform headers here, because the `preview` env compiles it with plain C++17.
+- **`src/`** is the firmware for `matrix` and `sim`. `main.cpp` runs a ~30 fps loop: debounce BOOT → read IMU → `effectAt(current).render(...)` → `displayShow`.
+- **`preview/preview.cpp`** is the desktop host. The `preview` env uses `build_src_filter = -<*> +<../preview/>`, so nothing in `src/` is built for it. It draws with 24-bit ANSI color and fakes tilt from the keyboard.
+- **`web/`** is the browser host, built outside PlatformIO. `web/serve.mjs` runs `em++` on `lib/Effects/src/Effects.cpp` + `web/web.cpp` into `web/build/effects.{mjs,wasm}` (gitignored), serves `web/`, and pushes reloads/compile errors to the page over server-sent events at `/events`. `web.cpp` exposes `extern "C"` `web_*` functions and copies each frame into a flat RGB buffer that `index.html` reads from `HEAPU8`. It must be linked with `em++`, not `emcc`, or the `Effect` vtables fail to link. `index.html` renders on the same 33 ms step as `cfg::kFrameMs` because `Marble` and `Sparkle` fade once per render, so trail length depends on frame rate. It also caps effect-time advance at 100 ms per frame so a backgrounded tab doesn't hand `Marble` a huge `dt`.
+
+Responsibilities split across layers:
+
+- **Coordinate conventions.** Effects use screen space: +tiltX means the right edge is down, +tiltY means the bottom edge is down (`imu.h`, `Effects.h`). Each IMU driver maps raw axes into this space. If tilt is wrong on hardware, fix the signs in `imu_qmi8658.cpp`, not in effects.
+- **Brightness and rotation are applied only in `src/display.cpp`** (`cfg::kMaxBrightness` via NeoPixel `setBrightness`, `cfg::kRotation` via `indexFor`). Effects should draw at full brightness; the preview shows uncapped colors. LEDs are chained row-major from the top-left, which matches Wokwi's `wokwi-led-matrix` default.
+- **IMU selection** is by preprocessor, not build filter: `imu_qmi8658.cpp` is wrapped in `#ifndef SIM` and `imu_mpu6050.cpp` in `#ifdef SIM`. Both implement `imu.h`. Only `matrix` pulls in SensorLib.
+- **Effect registry.** To add an effect, subclass `Effect` in `lib/Effects/src/Effects.cpp` and add an instance to `kEffects` (order = button cycle order). Stateful effects (e.g. `Marble`, which derives `dt` from `Inputs::ms`) must restore their state in `reset()`, which both hosts call on effect switch along with `frame.clear()`.
+
+## Hardware constraints
+
+- `cfg::kMaxBrightness` is 40 on purpose: Waveshare warns that high brightness overheats and can damage the board. Don't raise it casually.
+- Memory config (4 MB flash, 2 MB quad PSRAM, `qio_qspi`) is set in `platformio.ini` and mirrored in `diagram.json`. Keep the two in sync.
+- `diagram.json` wires Wokwi's ESP32-S3-DevKitC-1 to the same GPIOs as the Matrix board. The DevKitC has no GPIO33/34.
+- Versions are pinned to match Waveshare's tested setup: `espressif32@6.13.0` (Arduino-ESP32 2.0.17), Adafruit NeoPixel 1.12.0, SensorLib v0.1.6 (from a GitHub tag because it isn't in the PlatformIO registry). Don't bump them without a reason.
+- Unverified-on-hardware settings: rotation (`cfg::kRotation`), tilt signs (`imu_qmi8658.cpp`), and color order (`NEO_GRB` vs `NEO_RGB` in `display.cpp`).

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matrix Preview</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0e0f11;
+    --board: #16181b;
+    --board-edge: #2a2d32;
+    --led-off: #202328;
+    --text: #e6e6e6;
+    --muted: #8a8f98;
+    --accent: #5aa9ff;
+    --error-bg: #2a1215;
+    --error-text: #ffb4b4;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 16px;
+  }
+  main { width: min(100%, 440px); display: grid; gap: 16px; }
+  .board {
+    background: var(--board);
+    border: 1px solid var(--board-edge);
+    border-radius: 14px;
+    padding: 4px;
+  }
+  canvas { display: block; width: 100%; aspect-ratio: 1; }
+  .status { display: flex; justify-content: space-between; gap: 12px; }
+  .name { font-weight: 600; }
+  .tilt { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--board);
+    border: 1px solid var(--board-edge);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  button[hidden] { display: none; }
+  .help { color: var(--muted); margin: 0; }
+  .error {
+    margin: 0;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--error-bg);
+    color: var(--error-text);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    font-size: 12px;
+  }
+  .error[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="board"><canvas id="leds"></canvas></div>
+  <div class="status">
+    <span class="name" id="name">loading…</span>
+    <span class="tilt" id="tilt"></span>
+  </div>
+  <div class="controls">
+    <button id="next">Next effect</button>
+    <button id="center">Level</button>
+    <button id="motion" aria-pressed="false" hidden>Device tilt</button>
+  </div>
+  <p class="help">arrows/WASD tilt · space next effect · colors at full brightness (the board caps them in config.h)</p>
+  <pre class="error" id="error" hidden></pre>
+</main>
+
+<script type="module">
+// Mirrors preview/preview.cpp: same keys, same tilt steps, same 33 ms frame step
+// as cfg::kFrameMs. The frame step matters because effects fade once per render.
+const FRAME_MS = 33;
+const TILT_STEP = 0.25;
+
+const canvas = document.getElementById('leds');
+const ctx = canvas.getContext('2d');
+const nameEl = document.getElementById('name');
+const tiltEl = document.getElementById('tilt');
+const errorEl = document.getElementById('error');
+const motionBtn = document.getElementById('motion');
+
+function showError(text) {
+  errorEl.textContent = text;
+  errorEl.hidden = !text;
+}
+
+// Live reload and compile errors from web/serve.mjs. A plain static server
+// answers 404 here, which closes the EventSource without retrying.
+const events = new EventSource('/events');
+events.addEventListener('reload', () => location.reload());
+events.addEventListener('build-error', (e) => showError(JSON.parse(e.data)));
+
+let mod;
+try {
+  const { default: createEffects } = await import('./build/effects.mjs');
+  mod = await createEffects();
+} catch (err) {
+  showError(`Could not load build/effects.mjs. Run: node web/serve.mjs\n\n${err}`);
+  throw err;
+}
+
+const W = mod._web_width();
+const H = mod._web_height();
+const pixelsPtr = mod._web_pixels();
+
+let tiltX = 0, tiltY = 0;
+let useMotion = false;
+const clamp = (v) => Math.max(-1, Math.min(1, v));
+
+function next() {
+  mod._web_next();
+  nameEl.textContent = mod.UTF8ToString(mod._web_name());
+}
+
+mod._web_select(0);
+nameEl.textContent = mod.UTF8ToString(mod._web_name());
+
+// --- input ---
+
+document.addEventListener('keydown', (e) => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const step = {
+    ArrowLeft: [-1, 0], a: [-1, 0],
+    ArrowRight: [1, 0], d: [1, 0],
+    ArrowUp: [0, -1], w: [0, -1],
+    ArrowDown: [0, 1], s: [0, 1],
+  }[k];
+  if (step && !useMotion) {
+    tiltX = clamp(tiltX + step[0] * TILT_STEP);
+    tiltY = clamp(tiltY + step[1] * TILT_STEP);
+  } else if (k === ' ' || k === 'n') {
+    next();
+  } else {
+    return;
+  }
+  e.preventDefault();
+});
+
+document.getElementById('next').addEventListener('click', next);
+document.getElementById('center').addEventListener('click', () => { tiltX = tiltY = 0; });
+
+// Phone/tablet tilt. beta > 0 means the top edge is raised (bottom edge down),
+// gamma > 0 means the right edge is down, matching the +tiltY / +tiltX convention
+// in Effects.h. The vector is rotated so it stays screen-relative in landscape.
+// Browsers only deliver these events on HTTPS or localhost.
+function onOrientation(e) {
+  if (e.beta == null || e.gamma == null) return;
+  const rad = Math.PI / 180;
+  const dx = Math.sin(e.gamma * rad);
+  const dy = Math.sin(e.beta * rad);
+  const a = (screen.orientation?.angle ?? 0) * rad;
+  tiltX = clamp(dx * Math.cos(a) + dy * Math.sin(a));
+  tiltY = clamp(-dx * Math.sin(a) + dy * Math.cos(a));
+}
+
+if ('DeviceOrientationEvent' in window && window.isSecureContext) {
+  motionBtn.hidden = false;
+  motionBtn.addEventListener('click', async () => {
+    if (!useMotion && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        if (await DeviceOrientationEvent.requestPermission() !== 'granted') return;
+      } catch { return; }
+    }
+    useMotion = !useMotion;
+    motionBtn.setAttribute('aria-pressed', useMotion);
+    if (useMotion) addEventListener('deviceorientation', onOrientation);
+    else removeEventListener('deviceorientation', onOrientation);
+  });
+}
+
+// --- drawing ---
+
+function resize() {
+  const size = Math.round(canvas.clientWidth * devicePixelRatio);
+  canvas.width = canvas.height = size;
+}
+addEventListener('resize', resize);
+resize();
+
+const ledOff = getComputedStyle(document.documentElement).getPropertyValue('--led-off');
+
+function draw() {
+  const px = mod.HEAPU8.subarray(pixelsPtr, pixelsPtr + W * H * 3);
+  // Inset the grid so the outer LEDs' glow isn't clipped at the canvas edge.
+  const inset = canvas.width * 0.04;
+  const cell = (canvas.width - 2 * inset) / W;
+  const r = cell * 0.36;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 3;
+      const [cr, cg, cb] = [px[i], px[i + 1], px[i + 2]];
+      const level = Math.max(cr, cg, cb) / 255;
+      const cx = inset + (x + 0.5) * cell, cy = inset + (y + 0.5) * cell;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      if (level > 0.02) {
+        ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = cell * 0.5 * level;
+      } else {
+        ctx.fillStyle = ledOff;
+        ctx.shadowBlur = 0;
+      }
+      ctx.fill();
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Effect time advances at most 100 ms per frame, so a backgrounded tab doesn't
+// hand Marble a multi-second dt when it comes back.
+let clock = 0, lastNow = null, nextFrame = 0;
+function tick(now) {
+  if (now >= nextFrame) {
+    nextFrame = now + FRAME_MS;
+    clock += lastNow == null ? 0 : Math.min(now - lastNow, 100);
+    lastNow = now;
+    mod._web_render(Math.round(clock) >>> 0, tiltX, tiltY);
+    draw();
+    tiltEl.textContent = `tilt x=${tiltX >= 0 ? '+' : ''}${tiltX.toFixed(2)} y=${tiltY >= 0 ? '+' : ''}${tiltY.toFixed(2)}`;
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

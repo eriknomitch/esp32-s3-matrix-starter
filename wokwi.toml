@@ -1,0 +1,5 @@
+[wokwi]
+version = 1
+# Build first with:  pio run -e sim
+firmware = '.pio/build/sim/firmware.bin'
+elf = '.pio/build/sim/firmware.elf'
