@@ -60,8 +60,21 @@
     inset: 0;
     backface-visibility: hidden;
   }
-  .face.front { transform: translateZ(0.5px); }
-  .face.back { transform: rotateY(180deg) translateZ(0.5px); }
+  .device { --z: 0.5px; }  /* half the board's thickness: how far each face sits from the middle */
+  .view-board { --z: 4px; }
+  .face.front { transform: translateZ(var(--z)); }
+  .face.back { transform: rotateY(180deg) translateZ(var(--z)); }
+  /* The board's edge: a stack of thin PCB-shaped slices between the two faces. */
+  .edge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 6.72%;  /* 18 / 268, where the PCB starts under the USB-C shell */
+    bottom: 0;
+    border-radius: 4%;
+    background: #a98238;
+  }
+  .view-matrix .edge { display: none; }
   .face svg, .face canvas {
     position: absolute;
     inset: 0;
@@ -74,13 +87,18 @@
      change; the canvas on top draws the LEDs. */
   .view-board { aspect-ratio: 250 / 268; }
   .view-board svg { filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55)); }
-  .pcb { fill: var(--pcb); stroke: var(--pcb-edge); stroke-width: 0.75; }
-  .pad { fill: var(--bg); stroke: url(#gold); stroke-width: 2; }
-  .label {
+  .pcb { fill: var(--pcb); stroke: rgba(214, 178, 96, 0.6); stroke-width: 0.8; }
+  .pad { fill: var(--bg); stroke: url(#gold); stroke-width: 2.4; }
+  .label, .pin, .mark {
     fill: var(--silkscreen);
-    font: 600 11px system-ui, -apple-system, "Segoe UI", sans-serif;
-    letter-spacing: 0.1px;
+    font: 600 7px system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+  .label { font-size: 10px; letter-spacing: 0.1px; }
+  .mark { font-size: 7.5px; }
+  .chip { fill: #101010; stroke: #cfcfcf; stroke-width: 0.9; stroke-dasharray: 0.9 1.7; }
+  .chiptxt { fill: #8c8c8c; font: 500 5.5px ui-monospace, Menlo, monospace; }
+  .smd { fill: #b9b9b9; }
+  .metal { fill: #c9ccd0; }
 
   /* Matrix view: a plain panel of round LEDs, not tied to this board. */
   .view-matrix { aspect-ratio: 1; }
@@ -137,6 +155,17 @@
       <stop offset="0.85" stop-color="#eef0f2"/>
       <stop offset="1" stop-color="#8a8c90"/>
     </linearGradient>
+    <linearGradient id="usbBody" x1="0" x2="1">
+      <stop offset="0" stop-color="#9a9da2"/>
+      <stop offset="0.2" stop-color="#e2e4e7"/>
+      <stop offset="0.8" stop-color="#d3d6da"/>
+      <stop offset="1" stop-color="#9a9da2"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.09"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.03"/>
+    </linearGradient>
     <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffc861"/>
       <stop offset="0.5" stop-color="#f29a1f"/>
@@ -151,16 +180,85 @@
         <svg viewBox="0 0 250 268" aria-hidden="true">
           <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
           <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
-          <g class="pads"></g>
-          <text class="label" x="125" y="34" text-anchor="middle">ESP32-S3-Matrix</text>
+          <rect x="0.4" y="18.4" width="249.2" height="249.2" rx="10" fill="url(#sheen)"/>
+          <g class="pads" data-face="front"></g>
+          <text class="label" x="125" y="30" text-anchor="middle">ESP32-S3-Matrix</text>
         </svg>
         <canvas id="leds"></canvas>
       </div>
       <div class="face back">
+        <!-- Seen from behind, USB-C still at the top: the pad names swap sides. -->
         <svg viewBox="0 0 250 268" aria-hidden="true">
-          <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
           <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
-          <g class="pads"></g>
+          <g class="pads" data-face="back"></g>
+
+          <!-- USB-C receptacle, with its mounting tabs and contact row -->
+          <g class="metal">
+            <rect x="69" y="26" width="10" height="9" rx="1"/>
+            <rect x="171" y="26" width="10" height="9" rx="1"/>
+            <rect x="69" y="62" width="10" height="9" rx="1"/>
+            <rect x="171" y="62" width="10" height="9" rx="1"/>
+          </g>
+          <rect x="79" y="8" width="92" height="64" rx="4" fill="url(#usbBody)"/>
+          <ellipse cx="104" cy="40" rx="4" ry="3" fill="#6f7276"/>
+          <ellipse cx="146" cy="40" rx="4" ry="3" fill="#6f7276"/>
+          <g class="metal">
+            <rect x="94" y="75" width="2.6" height="5"/><rect x="99.4" y="75" width="2.6" height="5"/>
+            <rect x="104.8" y="75" width="2.6" height="5"/><rect x="110.2" y="75" width="2.6" height="5"/>
+            <rect x="115.6" y="75" width="2.6" height="5"/><rect x="121" y="75" width="2.6" height="5"/>
+            <rect x="126.4" y="75" width="2.6" height="5"/><rect x="131.8" y="75" width="2.6" height="5"/>
+            <rect x="137.2" y="75" width="2.6" height="5"/><rect x="142.6" y="75" width="2.6" height="5"/>
+            <rect x="148" y="75" width="2.6" height="5"/><rect x="153.4" y="75" width="2.6" height="5"/>
+          </g>
+
+          <!-- RESET and BOOT buttons -->
+          <text class="mark" x="44" y="31" text-anchor="middle">RESET</text>
+          <rect class="metal" x="30" y="36" width="28" height="40" rx="2"/>
+          <rect x="35" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
+          <circle cx="44" cy="51" r="5.5" fill="#26282b"/>
+          <text class="mark" x="205" y="31" text-anchor="middle">BOOT</text>
+          <rect class="metal" x="191" y="36" width="28" height="40" rx="2"/>
+          <rect x="196" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
+          <circle cx="205" cy="51" r="5.5" fill="#26282b"/>
+
+          <!-- test pads -->
+          <g fill="#d7b36a">
+            <circle cx="41" cy="91" r="5"/><circle cx="41" cy="113" r="5"/><circle cx="41" cy="132" r="5"/>
+          </g>
+          <text class="mark" x="51" y="94">GND</text>
+          <text class="mark" x="51" y="116">5V</text>
+          <text class="mark" x="51" y="135">Dout</text>
+
+          <!-- ESP32-S3 (turned 45 degrees) and the IMU -->
+          <g transform="translate(130 157) rotate(45)">
+            <rect class="chip" x="-33" y="-33" width="66" height="66" rx="2"/>
+            <circle r="9" fill="none" stroke="#666" stroke-width="1.4"/>
+            <text class="chiptxt" x="0" y="-16" text-anchor="middle">ESP32-S3</text>
+            <text class="chiptxt" x="0" y="23" text-anchor="middle">FH4R2</text>
+          </g>
+          <rect class="chip" x="186" y="109" width="22" height="22" rx="2"/>
+          <text class="chiptxt" x="197" y="122" text-anchor="middle">8658</text>
+          <text class="mark" x="203" y="92" style="font-size: 6px">Y</text>
+          <text class="mark" x="186" y="98" style="font-size: 6px">Z</text>
+          <text class="mark" x="186" y="106" style="font-size: 6px">X</text>
+
+          <!-- crystal, regulator, antenna module, and passives -->
+          <rect x="75" y="198" width="14" height="14" rx="1" fill="#d9c9a0" stroke="#a89868" stroke-width="0.5"/>
+          <rect x="42" y="178" width="20" height="17" rx="1" fill="#0d0d0d"/>
+          <rect class="metal" x="88" y="250" width="60" height="13" rx="1.5"/>
+          <rect x="94" y="252" width="48" height="9" fill="#d6262e"/>
+          <text x="118" y="259.5" text-anchor="middle" fill="#fff" style="font: 700 6.5px system-ui, sans-serif">C3</text>
+          <g class="smd">
+            <rect x="86" y="115" width="6" height="3.5" rx="0.5"/><rect x="95" y="115" width="6" height="3.5" rx="0.5"/>
+            <rect x="104" y="115" width="6" height="3.5" rx="0.5"/><rect x="76" y="137" width="6" height="3.5" rx="0.5"/>
+            <rect x="110" y="189" width="6" height="3.5" rx="0.5"/><rect x="120" y="189" width="6" height="3.5" rx="0.5"/>
+            <rect x="165" y="175" width="6" height="3.5" rx="0.5"/><rect x="180" y="190" width="6" height="3.5" rx="0.5"/>
+            <rect x="176" y="205" width="6" height="3.5" rx="0.5"/><rect x="160" y="210" width="6" height="3.5" rx="0.5"/>
+            <rect x="140" y="222" width="6" height="3.5" rx="0.5"/><rect x="125" y="228" width="6" height="3.5" rx="0.5"/>
+            <rect x="70" y="225" width="6" height="3.5" rx="0.5"/><rect x="60" y="215" width="6" height="3.5" rx="0.5"/>
+            <rect x="155" y="235" width="6" height="3.5" rx="0.5"/><rect x="185" y="225" width="6" height="3.5" rx="0.5"/>
+            <rect x="195" y="160" width="3.5" height="6" rx="0.5"/><rect x="170" y="145" width="3.5" height="6" rx="0.5"/>
+          </g>
         </svg>
       </div>
     </div>
@@ -190,21 +288,27 @@ const KEY_STEP_DEG = 15;  // about 0.26 g near level, close to preview.cpp's 0.2
 
 // LED layouts, in each view's own units. The board view matches the real
 // board: ten through-hole pads per side and the 8x8 grid between them.
-const PAD_X = [13.5, 236.5];
-const PAD_Y0 = 31.13, PAD_PITCH = 24.78, PAD_COUNT = 10, PAD_R = 7.5;
+const PAD_X = [9, 241];
+const PAD_Y0 = 29, PAD_PITCH = 25.4, PAD_COUNT = 10, PAD_R = 4.6;
+
+// Silkscreen pin names: one per gap between pads, and the last one beside the
+// bottom pad. The back shows them with the sides swapped.
+const POWER_SIDE = ['5V', 'G', '3V3', '7', '6', '5', '4', '3', '2'];
+const GPIO_SIDE = ['33', '34', '35', '36', '37', '38', '39', '40', 'TX'];
+const PIN_NAMES = {
+  front: { left: [POWER_SIDE, '1'], right: [GPIO_SIDE, 'RX'] },
+  back: { left: [GPIO_SIDE, 'RX'], right: [POWER_SIDE, '1'] },
+};
+
+// The board view paints its LEDs with drawBoardLeds() (package, lens, bloom).
+// The plain matrix has dark LEDs, so there the color is simply added to them.
 const LAYOUTS = {
-  board: {
-    viewW: 250,
-    offVar: '--led-off-board',
-    glow: 14,
-    path(ctx, x, y) {
-      ctx.roundRect(29 + x * 25, 42.63 + y * 26, 17, 18, 1.5);
-    },
-  },
+  board: { viewW: 250, photo: true },
   matrix: {
     viewW: 100,
-    offVar: '--led-off-matrix',
+    off: null,  // read from the --led-off-matrix CSS variable
     glow: 5.75,
+    additive: true,
     path(ctx, x, y) {
       const cell = 11.5;  // 92 units of grid inside a 4-unit inset
       ctx.arc(4 + (x + 0.5) * cell, 4 + (y + 0.5) * cell, cell * 0.36, 0, Math.PI * 2);
@@ -221,17 +325,37 @@ const tiltEl = document.getElementById('tilt');
 const errorEl = document.getElementById('error');
 const motionBtn = document.getElementById('motion');
 
+function svgEl(name, attrs, text) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (text) el.textContent = text;
+  return el;
+}
+
 for (const g of document.querySelectorAll('.pads')) {
-  for (const cx of PAD_X) {
+  const names = PIN_NAMES[g.dataset.face];
+  PAD_X.forEach((cx, side) => {
+    const [gaps, last] = names[side ? 'right' : 'left'];
     for (let i = 0; i < PAD_COUNT; i++) {
-      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      c.setAttribute('class', 'pad');
-      c.setAttribute('cx', cx);
-      c.setAttribute('cy', PAD_Y0 + i * PAD_PITCH);
-      c.setAttribute('r', PAD_R);
-      g.append(c);
+      const cy = PAD_Y0 + i * PAD_PITCH;
+      g.append(svgEl('circle', { class: 'pad', cx, cy, r: PAD_R }));
+      if (i < gaps.length) {
+        g.append(svgEl('text', { class: 'pin', x: cx, y: cy + PAD_PITCH / 2 + 2.4, 'text-anchor': 'middle' }, gaps[i]));
+      }
     }
-  }
+    g.append(svgEl('text', {
+      class: 'pin', x: side ? 231 : 19, y: PAD_Y0 + (PAD_COUNT - 1) * PAD_PITCH + 2.6,
+      'text-anchor': side ? 'end' : 'start',
+    }, last));
+  });
+}
+
+// The board's edge: thin slices between the two faces (see .edge in the CSS).
+for (let i = 0; i < 8; i++) {
+  const slice = document.createElement('div');
+  slice.className = 'edge';
+  slice.style.transform = `translateZ(${i - 3.5}px)`;
+  document.getElementById('device').prepend(slice);
 }
 
 function showError(text) {
@@ -475,23 +599,106 @@ setView(view);
 
 const rootStyle = getComputedStyle(document.documentElement);
 
-// Each LED is its unlit package, with the lit color added on top ('lighter'),
-// so dim trail pixels fade into the package instead of to black.
+// Board LEDs, modelled on photos of the real thing: a warm gray package with a
+// dark rim, a lighter lens and a small die. A lit LED tints its package, burns
+// to a near-white core, and blooms colored light onto the PCB and its
+// neighbors. Packages are painted first so every bloom lands on top of them.
+const LED_SIZE = 19;
+const ledX = (x) => 31 + x * 27;
+const ledY = (y) => 42 + y * 27.4;
+const pkgGrad = ctx.createLinearGradient(-9.5, -9.5, 9.5, 9.5);
+pkgGrad.addColorStop(0, '#b0a5a3');
+pkgGrad.addColorStop(1, '#857b7a');
+const lensGrad = ctx.createRadialGradient(-1.5, -1.5, 0, 0, 0, 9);
+lensGrad.addColorStop(0, '#cdc3c0');
+lensGrad.addColorStop(1, '#978d8b');
+
+function drawBoardLeds(px) {
+  const lit = [];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 3;
+      const peak = Math.max(px[i], px[i + 1], px[i + 2]);
+      const level = peak / 255;
+      ctx.save();
+      ctx.translate(ledX(x), ledY(y));
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = pkgGrad;
+      ctx.strokeStyle = '#463e3d';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.roundRect(-LED_SIZE / 2, -LED_SIZE / 2, LED_SIZE, LED_SIZE, 2.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = lensGrad;
+      ctx.beginPath();
+      ctx.roundRect(-7, -7, 14, 14, 3.5);
+      ctx.fill();
+      ctx.fillStyle = '#4b3f3f';
+      ctx.fillRect(-4.5, -1.6, 3.2, 3.2);
+      ctx.fillStyle = '#a8453f';
+      ctx.fillRect(-3.6, -0.7, 1.4, 1.4);
+
+      if (level > 0.02) {
+        const rgb = [px[i], px[i + 1], px[i + 2]].map((v) => Math.round(v * 255 / peak));
+        const color = `${rgb[0]},${rgb[1]},${rgb[2]}`;
+        const hot = rgb.map((v) => Math.round(v * 0.35 + 255 * 0.65)).join(',');
+        // the package takes on the color...
+        ctx.globalAlpha = Math.min(1, 0.1 + level * 0.95);
+        ctx.fillStyle = `rgb(${color})`;
+        ctx.beginPath();
+        ctx.roundRect(-LED_SIZE / 2 + 0.5, -LED_SIZE / 2 + 0.5, LED_SIZE - 1, LED_SIZE - 1, 2.2);
+        ctx.fill();
+        // ...and the lens burns toward white where the die sits
+        const core = ctx.createRadialGradient(-1, 0, 0, -1, 0, 8);
+        core.addColorStop(0, `rgba(${hot},${0.95 * level})`);
+        core.addColorStop(0.55, `rgba(${hot},${0.3 * level})`);
+        core.addColorStop(1, `rgba(${color},0)`);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.roundRect(-8.5, -8.5, 17, 17, 2.5);
+        ctx.fill();
+        lit.push([x, y, color, level]);
+      }
+      ctx.restore();
+    }
+  }
+
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [x, y, color, level] of lit) {
+    const bloom = ctx.createRadialGradient(ledX(x), ledY(y), 3, ledX(x), ledY(y), 30);
+    bloom.addColorStop(0, `rgba(${color},${0.5 * level})`);
+    bloom.addColorStop(0.4, `rgba(${color},${0.16 * level})`);
+    bloom.addColorStop(1, `rgba(${color},0)`);
+    ctx.fillStyle = bloom;
+    ctx.fillRect(ledX(x) - 30, ledY(y) - 30, 60, 60);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// Matrix view: each LED is its dark package with the lit color added on top
+// ('lighter'), so dim trail pixels fade into the package instead of to black.
 function draw() {
   const layout = LAYOUTS[view];
   const px = mod.HEAPU8.subarray(pixelsPtr, pixelsPtr + W * H * 3);
   const s = canvas.width / layout.viewW;
-  const off = rootStyle.getPropertyValue(layout.offVar);
+  const off = rootStyle.getPropertyValue('--led-off-matrix');
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(s, 0, 0, s, 0, 0);
+  if (layout.photo) return drawBoardLeds(px);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = (y * W + x) * 3;
       const [cr, cg, cb] = [px[i], px[i + 1], px[i + 2]];
-      const level = Math.max(cr, cg, cb) / 255;
+      const peak = Math.max(cr, cg, cb);
+      const level = peak / 255;
 
       ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
       ctx.fillStyle = off;
       ctx.beginPath();
@@ -503,11 +710,14 @@ function draw() {
         ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
         ctx.shadowColor = ctx.fillStyle;
         ctx.shadowBlur = layout.glow * s * level;  // shadowBlur is in device pixels
+        ctx.beginPath();
+        layout.path(ctx, x, y);
         ctx.fill();
       }
     }
   }
   ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
   ctx.shadowBlur = 0;
 }
 
