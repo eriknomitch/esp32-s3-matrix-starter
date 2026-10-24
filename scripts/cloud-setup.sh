@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude cloud environment setup: PlatformIO (matrix/sim/preview) and em++ (web/serve.mjs).
+# Claude cloud environment setup: PlatformIO (matrix/sim/preview), em++ (web/serve.mjs), and just.
 # Run it as the environment's setup script: bash scripts/cloud-setup.sh
 set -u
 
@@ -26,6 +26,12 @@ platform = native
 INI
   pio pkg install -d /tmp/pio-warm
 ) > /tmp/setup-pio.log 2>&1 &
+
+# just, which runs the justfile recipes (rust-just is the PyPI package name)
+(
+  uv tool install rust-just &&
+  ln -sf /root/.local/bin/just /usr/local/bin/
+) > /tmp/setup-just.log 2>&1 &
 
 wait
 exit 0
