@@ -23,6 +23,12 @@
     --accent: #5aa9ff;
     --error-bg: #2a1215;
     --error-text: #ffb4b4;
+    --viewport-edge: #24272c;
+    --viewport-dot: rgba(255, 255, 255, 0.05);
+    --hud-line: rgba(255, 255, 255, 0.16);
+    --axis-x: #ff6b6b;
+    --axis-y: #63d471;
+    --axis-z: #5aa9ff;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -37,14 +43,25 @@
     padding: 16px;
     overflow-x: clip;
   }
-  main { width: min(100%, 420px); display: grid; gap: 16px; }
+  main { width: min(100%, 600px); display: grid; gap: 16px; }
 
-  /* The stage is never transformed, so it stays a stable drag target even when
-     the board is edge-on. The device inside it rotates in 3D and has two faces;
-     whichever one points at the viewer is drawn. */
+  /* The stage is a fixed viewport, never transformed, so it stays a stable drag
+     target even when the board is edge-on. The board is 64% of its shorter
+     side: its corners are 0.733 board widths from the center it turns about,
+     so it stays inside in every orientation and never runs into the text
+     below. The height leaves room for that text on short screens. The device
+     inside rotates in 3D and has two faces; whichever one points at the viewer
+     is drawn. */
   .stage {
+    position: relative;
+    height: min(calc(100vw - 32px), 600px, max(300px, calc(100svh - 220px)));
+    container-type: size;
+    display: grid;
+    place-items: center;
     perspective: 1600px;
-    margin-block: 40px;  /* room for the near edge to grow when posed in 3D */
+    border: 1px solid var(--viewport-edge);
+    border-radius: 14px;
+    background: radial-gradient(circle, var(--viewport-dot) 1px, transparent 1.5px) center / 24px 24px;
     cursor: grab;
     touch-action: none;
     user-select: none;
@@ -52,6 +69,7 @@
   .stage.dragging { cursor: grabbing; }
   .device {
     position: relative;
+    width: 64cqmin;
     transform-style: preserve-3d;
     transition: transform 80ms linear;
   }
@@ -110,6 +128,23 @@
   }
   .view-matrix .face.front { background: var(--panel); }
   .view-matrix .face.back { background: var(--panel-back); }
+
+  /* Readouts in the viewport's top corners, clear of the board's reach. */
+  .hud {
+    position: absolute;
+    top: 8px;
+    z-index: 1;
+    width: clamp(56px, 15cqmin, 90px);
+    margin: 0;
+    display: grid;
+    justify-items: center;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .hud.pose { left: 8px; }
+  .hud.gravity { right: 8px; }
+  .hud canvas { width: 100%; aspect-ratio: 1; }
 
   .status { display: flex; justify-content: space-between; gap: 12px; }
   .name { font-weight: 600; }
@@ -262,6 +297,14 @@
         </svg>
       </div>
     </div>
+    <figure class="hud pose" title="The board's axes as you see it: X to the right edge, Y to the bottom edge, Z out of the LEDs. Faded axes point away from you.">
+      <canvas id="pose"></canvas>
+      <figcaption>axes</figcaption>
+    </figure>
+    <figure class="hud gravity" title="What the IMU reports: gravity in the board's frame, i.e. the effects' tiltX/tiltY. The outer ring is 1 g, the inner one 0.5 g. Hollow when face down.">
+      <canvas id="gravity"></canvas>
+      <figcaption>gravity</figcaption>
+    </figure>
   </div>
   <div class="status">
     <span class="name" id="name">loading…</span>
@@ -324,6 +367,10 @@ const nameEl = document.getElementById('name');
 const tiltEl = document.getElementById('tilt');
 const errorEl = document.getElementById('error');
 const motionBtn = document.getElementById('motion');
+const poseCanvas = document.getElementById('pose');
+const poseCtx = poseCanvas.getContext('2d');
+const gravityCanvas = document.getElementById('gravity');
+const gravityCtx = gravityCanvas.getContext('2d');
 
 function svgEl(name, attrs, text) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -431,7 +478,10 @@ function tiltFromPose() {
   const [w, x, y, z] = q;
   return [2 * (w * y - x * z), -2 * (y * z + w * x)];
 }
-const faceDown = () => 1 - 2 * (q[1] * q[1] + q[2] * q[2]) < 0;
+// How far the LED face points from straight at the viewer, in degrees. Past
+// 90 the board is face down.
+const offLevelDeg = () =>
+  Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (q[1] * q[1] + q[2] * q[2])))) * 180 / Math.PI;
 
 // Eases back to level over a few frames, through the shortest rotation.
 function stepLeveling() {
@@ -443,14 +493,19 @@ function stepLeveling() {
   }
 }
 
-function matrix3d() {
+// The board's own x, y and z axes (right edge, bottom edge, out of the LEDs)
+// in CSS's frame, which are the columns of its rotation matrix.
+function boardAxes() {
   const [w, x, y, z] = q;
-  return `matrix3d(${[
-    1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y), 0,
-    2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x), 0,
-    2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y), 0,
-    0, 0, 0, 1,
-  ].join(',')})`;
+  return [
+    [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)],
+    [2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)],
+    [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)],
+  ];
+}
+
+function matrix3d() {
+  return `matrix3d(${boardAxes().flatMap((col) => [...col, 0]).join(',')},0,0,0,1)`;
 }
 
 // --- input ---
@@ -482,11 +537,11 @@ stage.addEventListener('dblclick', level);
 
 // Drag like rolling a trackball: each pointer move turns the board about the
 // axis perpendicular to that move, so the axis follows the drag. Half the
-// stage's width is a quarter turn (90 degrees, 1 g).
+// board's width is a quarter turn (90 degrees, 1 g).
 let drag = null;
 stage.addEventListener('pointerdown', (e) => {
   if (useMotion || e.button !== 0) return;
-  drag = { x: e.clientX, y: e.clientY, half: stage.offsetWidth / 2 };
+  drag = { x: e.clientX, y: e.clientY, half: device.offsetWidth / 2 };
   stage.setPointerCapture(e.pointerId);
   stage.classList.add('dragging');
 });
@@ -591,8 +646,10 @@ view3dBtn.addEventListener('click', () => {
 // --- drawing ---
 
 function resize() {
-  canvas.width = Math.round(canvas.clientWidth * devicePixelRatio);
-  canvas.height = Math.round(canvas.clientHeight * devicePixelRatio);
+  for (const c of [canvas, poseCanvas, gravityCanvas]) {
+    c.width = Math.round(c.clientWidth * devicePixelRatio);
+    c.height = Math.round(c.clientHeight * devicePixelRatio);
+  }
 }
 addEventListener('resize', resize);
 setView(view);
@@ -721,6 +778,120 @@ function draw() {
   ctx.shadowBlur = 0;
 }
 
+// The HUDs draw in a 100 x 100 space.
+function hudBegin(c) {
+  const s = c.canvas.width / 100;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, c.canvas.width, c.canvas.height);
+  c.setTransform(s, 0, 0, s, 0, 0);
+  c.globalAlpha = 1;
+  c.setLineDash([]);
+  c.lineCap = 'round';
+}
+
+// Axes HUD: the board's axes as the viewer sees them (orthographic, so no
+// perspective), around a miniature of the board. Axes pointing away from the
+// viewer are drawn faded and behind the board.
+function drawPose() {
+  const c = poseCtx;
+  hudBegin(c);
+  const axes = boardAxes();
+  const [ax, ay, az] = axes;
+  const colors = ['--axis-x', '--axis-y', '--axis-z'].map((v) => rootStyle.getPropertyValue(v));
+  const LEN = 34, HALF = 17;
+
+  const drawAxis = (i) => {
+    const [vx, vy, vz] = axes[i];
+    c.globalAlpha = vz < -0.05 ? 0.45 : 1;
+    c.strokeStyle = c.fillStyle = colors[i];
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(50, 50);
+    c.lineTo(50 + vx * LEN, 50 + vy * LEN);
+    c.stroke();
+    c.beginPath();
+    c.arc(50 + vx * LEN, 50 + vy * LEN, 3, 0, Math.PI * 2);
+    c.fill();
+    // Push the label out along the axis, or off to the side when the axis
+    // points at the viewer and has no length on screen.
+    const len = Math.hypot(vx, vy);
+    const [lx, ly] = len > 0.3 ? [vx / len, vy / len] : [0.7, -0.7];
+    c.font = '700 13px ui-monospace, Menlo, monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('XYZ'[i], 50 + vx * LEN + lx * 9, 50 + vy * LEN + ly * 9);
+  };
+  const order = [0, 1, 2].sort((a, b) => axes[a][2] - axes[b][2]);
+
+  for (const i of order) if (axes[i][2] < 0) drawAxis(i);
+  // The board, with a tab at its top edge for the USB-C port. Its back is gold
+  // like the edge, so a board turned over reads as such.
+  const pt = (u, v) => [50 + (ax[0] * u + ay[0] * v) * HALF, 50 + (ax[1] * u + ay[1] * v) * HALF];
+  c.globalAlpha = 1;
+  c.lineWidth = 1;
+  c.fillStyle = az[2] >= 0 ? 'rgba(255, 255, 255, 0.12)' : 'rgba(214, 178, 96, 0.3)';
+  c.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  for (const shape of [[[-1, -1], [1, -1], [1, 1], [-1, 1]], [[-0.35, -1], [0.35, -1], [0.35, -1.25], [-0.35, -1.25]]]) {
+    c.beginPath();
+    for (const [u, v] of shape) c.lineTo(...pt(u, v));
+    c.closePath();
+    c.fill();
+    c.stroke();
+  }
+  for (const i of order) if (axes[i][2] >= 0) drawAxis(i);
+}
+
+// Gravity HUD: a bubble-level plot of the effects' tiltX/tiltY, the x/y of
+// gravity in the board's frame. The crosshair takes the axis colors, the
+// outer ring is 1 g, and the dot is hollow when the board is face down
+// (past 90 degrees the reading shrinks back toward the center).
+function drawGravity(tiltX, tiltY, down) {
+  const c = gravityCtx;
+  hudBegin(c);
+  const R = 42;
+  const [colX, colY, accent] = ['--axis-x', '--axis-y', '--accent'].map((v) => rootStyle.getPropertyValue(v));
+  c.lineWidth = 1;
+  c.strokeStyle = rootStyle.getPropertyValue('--hud-line');
+  c.beginPath();
+  c.arc(50, 50, R, 0, Math.PI * 2);
+  c.stroke();
+  c.setLineDash([2, 3]);
+  c.beginPath();
+  c.arc(50, 50, R / 2, 0, Math.PI * 2);
+  c.stroke();
+  c.setLineDash([]);
+  c.globalAlpha = 0.5;
+  c.strokeStyle = colX;
+  c.beginPath();
+  c.moveTo(50 - R, 50);
+  c.lineTo(50 + R, 50);
+  c.stroke();
+  c.strokeStyle = colY;
+  c.beginPath();
+  c.moveTo(50, 50 - R);
+  c.lineTo(50, 50 + R);
+  c.stroke();
+
+  const px = 50 + tiltX * R, py = 50 + tiltY * R;
+  c.globalAlpha = 0.7;
+  c.strokeStyle = accent;
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(50, 50);
+  c.lineTo(px, py);
+  c.stroke();
+  c.globalAlpha = 1;
+  c.beginPath();
+  c.arc(px, py, 6, 0, Math.PI * 2);
+  if (down) {
+    c.lineWidth = 2.5;
+    c.stroke();
+  } else {
+    c.fillStyle = accent;
+    c.fill();
+  }
+}
+
 const signed = (v) => {
   const r = Math.round(v * 100) / 100 || 0;  // || 0 turns -0 into 0
   return `${r >= 0 ? '+' : ''}${r.toFixed(2)}`;
@@ -739,7 +910,10 @@ function tick(now) {
     mod._web_render(Math.round(clock) >>> 0, tiltX, tiltY);
     draw();
     device.style.transform = view3d ? matrix3d() : '';
-    tiltEl.textContent = `tilt x=${signed(tiltX)} y=${signed(tiltY)}${faceDown() ? ' · face down' : ''}`;
+    const deg = offLevelDeg();
+    drawPose();
+    drawGravity(tiltX, tiltY, deg > 90);
+    tiltEl.textContent = `tilt x=${signed(tiltX)} y=${signed(tiltY)} · ${Math.round(deg)}°${deg > 90 ? ' face down' : ''}`;
   }
   requestAnimationFrame(tick);
 }
