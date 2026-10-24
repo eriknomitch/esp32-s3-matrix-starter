@@ -35,6 +35,9 @@
     border: 1px solid var(--board-edge);
     border-radius: 14px;
     padding: 4px;
+    margin-block: 28px;  /* room for the near edge to grow when posed in 3D */
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+    transition: transform 80ms linear;
   }
   canvas { display: block; width: 100%; aspect-ratio: 1; }
   .status { display: flex; justify-content: space-between; gap: 12px; }
@@ -77,6 +80,7 @@
   <div class="controls">
     <button id="next">Next effect</button>
     <button id="center">Level</button>
+    <button id="view3d" aria-pressed="true">3D</button>
     <button id="motion" aria-pressed="false" hidden>Device tilt</button>
   </div>
   <p class="help">arrows/WASD tilt · space next effect · colors at full brightness (the board caps them in config.h)</p>
@@ -160,8 +164,12 @@ document.getElementById('center').addEventListener('click', () => { tiltX = tilt
 // gamma > 0 means the right edge is down, matching the +tiltY / +tiltX convention
 // in Effects.h. The vector is rotated so it stays screen-relative in landscape.
 // Browsers only deliver these events on HTTPS or localhost.
+const hasReading = (e) => e.beta != null && e.gamma != null;
+let gotReading = false;
+
 function onOrientation(e) {
-  if (e.beta == null || e.gamma == null) return;
+  if (!hasReading(e)) return;
+  gotReading = true;
   const rad = Math.PI / 180;
   const dx = Math.sin(e.gamma * rad);
   const dy = Math.sin(e.beta * rad);
@@ -170,19 +178,68 @@ function onOrientation(e) {
   tiltY = clamp(-dx * Math.sin(a) + dy * Math.cos(a));
 }
 
+function setMotion(on) {
+  useMotion = on;
+  motionBtn.setAttribute('aria-pressed', on);
+  if (on) addEventListener('deviceorientation', onOrientation);
+  else removeEventListener('deviceorientation', onOrientation);
+}
+
+// Desktop browsers expose DeviceOrientationEvent without having a sensor; per
+// the spec they then fire one event with null angles, which hides the button.
+// Browsers that need permission first (iOS, and recent desktop Chrome) send
+// nothing until it is granted, so for them the button starts visible and is
+// turned back off (and hidden) if no reading follows a click.
 if ('DeviceOrientationEvent' in window && window.isSecureContext) {
-  motionBtn.hidden = false;
+  const needsPermission = typeof DeviceOrientationEvent.requestPermission === 'function';
+  motionBtn.hidden = !needsPermission;
+  const probe = (e) => {
+    motionBtn.hidden = !hasReading(e);
+    removeEventListener('deviceorientation', probe);
+  };
+  addEventListener('deviceorientation', probe);
   motionBtn.addEventListener('click', async () => {
-    if (!useMotion && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (useMotion) return setMotion(false);
+    if (needsPermission) {
       try {
         if (await DeviceOrientationEvent.requestPermission() !== 'granted') return;
       } catch { return; }
     }
-    useMotion = !useMotion;
-    motionBtn.setAttribute('aria-pressed', useMotion);
-    if (useMotion) addEventListener('deviceorientation', onOrientation);
-    else removeEventListener('deviceorientation', onOrientation);
+    setMotion(true);
+    setTimeout(() => {
+      if (useMotion && !gotReading) {
+        setMotion(false);
+        motionBtn.hidden = true;
+      }
+    }, 1000);
   });
+}
+
+// --- 3D board pose ---
+
+// The board rotates about one axis, perpendicular to the tilt direction, by an
+// angle from the tilt magnitude (in g, so asin gives the real angle). That is
+// scaled so 1 g (board on edge, 90 degrees) shows as MAX_VIEW_DEG, not edge-on.
+// Two stacked rotateX/rotateY calls would shear the board at large angles.
+const MAX_VIEW_DEG = 30;
+const board = document.querySelector('.board');
+const view3dBtn = document.getElementById('view3d');
+let view3d = true;
+
+view3dBtn.addEventListener('click', () => {
+  view3d = !view3d;
+  view3dBtn.setAttribute('aria-pressed', view3d);
+  if (!view3d) board.style.transform = '';
+});
+
+function poseBoard() {
+  if (!view3d) return;
+  const g = Math.min(1, Math.hypot(tiltX, tiltY));
+  const deg = Math.asin(g) / (Math.PI / 2) * MAX_VIEW_DEG;
+  // Right edge down is +rotateY, bottom edge down is -rotateX, so the axis is (-tiltY, tiltX).
+  board.style.transform = g > 0
+    ? `perspective(1600px) rotate3d(${-tiltY}, ${tiltX}, 0, ${deg}deg)`
+    : '';
 }
 
 // --- drawing ---
@@ -235,6 +292,7 @@ function tick(now) {
     lastNow = now;
     mod._web_render(Math.round(clock) >>> 0, tiltX, tiltY);
     draw();
+    poseBoard();
     tiltEl.textContent = `tilt x=${tiltX >= 0 ? '+' : ''}${tiltX.toFixed(2)} y=${tiltY >= 0 ? '+' : ''}${tiltY.toFixed(2)}`;
   }
   requestAnimationFrame(tick);
