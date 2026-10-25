@@ -30,6 +30,10 @@
     --axis-x: #ff6b6b;
     --axis-y: #63d471;
     --axis-z: #5aa9ff;
+    --card: #181a1e;
+    --console-bg: #101214;
+    --warn: #e8b04a;
+    --ok: #63d471;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -44,21 +48,31 @@
     padding: 24px 16px;
     overflow-x: clip;
   }
-  main { width: min(100%, 1120px); display: grid; gap: 20px; }
+  /* Two columns that fill the window: the simulator (stage, then its status and
+     controls) and a sidebar with what's running (device, firmware, build,
+     session) above the device's serial console. Narrow windows stack them. */
+  main {
+    width: min(100%, 1480px);
+    height: max(600px, 100svh - 48px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+    gap: 20px;
+  }
+  .sim, .side { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; }
   /* The text and buttons keep a readable column under the wide stage. */
-  .panel { width: min(100%, 600px); justify-self: center; display: grid; gap: 16px; }
+  .panel { width: min(100%, 760px); align-self: center; display: grid; gap: 16px; }
 
   /* The stage is a canvas-like viewport, never transformed, so it stays a
-     stable drag target even when the board is edge-on. It fills the window's
-     width and whatever height the text below leaves (no taller than 1.3x its
-     width, so phones don't get a tall strip of empty canvas). The board is 56% of its
+     stable drag target even when the board is edge-on. It takes whatever
+     height its column has left after the text below. The board is 56% of its
      shorter side: its corners are 0.733 board widths from the center it turns
      about, so it stays well inside in every orientation and never runs into
      the text. The device inside rotates in 3D and has two faces; whichever
      one points at the viewer is drawn. */
   .stage {
     position: relative;
-    height: clamp(320px, min(100svh - 250px, (100vw - 32px) * 1.3), 820px);
+    flex: 1 1 0;
+    min-height: 320px;
     container-type: size;
     display: grid;
     place-items: center;
@@ -183,7 +197,88 @@
     overflow-x: auto;
     font-size: 12px;
   }
+  .error { max-height: 40vh; }
   .error[hidden] { display: none; }
+
+  /* Sidebar cards. The info card shrinks and scrolls; the console keeps at
+     least 220 px and takes the rest. */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--viewport-edge);
+    border-radius: 14px;
+  }
+  .info { flex: 0 1 auto; overflow: auto; padding: 4px 16px; font-size: 12px; }
+  .info details + details { border-top: 1px solid var(--viewport-edge); }
+  .info summary {
+    padding: 10px 0;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .info summary:hover { color: var(--text); }
+  .info summary .aside { float: right; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .info dl {
+    margin: 0 0 12px;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px 14px;
+  }
+  .info dt { color: var(--muted); }
+  .info dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .info dd.wide { grid-column: 1 / -1; }
+  .info dd ul { margin: 0; padding: 0; list-style: none; }
+  .note { color: var(--muted); }
+  .badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+  .badge.warn { color: var(--warn); }
+  .dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+
+  .console { flex: 1 0 220px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .console header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 8px 16px;
+    border-bottom: 1px solid var(--viewport-edge);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .console header strong { color: var(--text); font-weight: 600; }
+  .console header button { margin-left: auto; padding: 2px 10px; font-size: 12px; }
+  .serial {
+    flex: 1;
+    margin: 0;
+    padding: 10px 16px;
+    overflow: auto;
+    background: var(--console-bg);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .serial div { padding-left: 11ch; text-indent: -11ch; }  /* wrapped lines clear the timestamp */
+  .serial .t { color: var(--muted); opacity: 0.7; }
+  .serial .err { color: var(--error-text); }
+
+  @media (max-width: 960px) {
+    main { grid-template-columns: minmax(0, 1fr); height: auto; }
+    /* No column height to fill here: as wide as the window and no taller than
+       1.3x that, so phones don't get a tall strip of empty canvas. */
+    .stage { flex: none; height: clamp(320px, min(100svh - 250px, (100vw - 32px) * 1.3), 820px); }
+    .info { overflow: visible; }
+    .console { flex: none; height: 280px; }
+  }
 </style>
 </head>
 <body>
@@ -215,126 +310,162 @@
   </defs>
 </svg>
 <main>
-  <div class="stage" title="Drag to turn the board, double-click to level">
-    <div class="device view-board" id="device">
-      <div class="face front">
-        <svg viewBox="0 0 250 268" aria-hidden="true">
-          <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
-          <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
-          <rect x="0.4" y="18.4" width="249.2" height="249.2" rx="10" fill="url(#sheen)"/>
-          <g class="pads" data-face="front"></g>
-          <text class="label" x="125" y="30" text-anchor="middle">ESP32-S3-Matrix</text>
-        </svg>
-        <canvas id="leds"></canvas>
+  <section class="sim" aria-label="Simulator">
+    <div class="stage" title="Drag to turn the board, double-click to level">
+      <div class="device view-board" id="device">
+        <div class="face front">
+          <svg viewBox="0 0 250 268" aria-hidden="true">
+            <rect x="77" y="7" width="96" height="20" rx="2.3" fill="url(#usb)"/>
+            <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
+            <rect x="0.4" y="18.4" width="249.2" height="249.2" rx="10" fill="url(#sheen)"/>
+            <g class="pads" data-face="front"></g>
+            <text class="label" x="125" y="30" text-anchor="middle">ESP32-S3-Matrix</text>
+          </svg>
+          <canvas id="leds"></canvas>
+        </div>
+        <div class="face back">
+          <!-- Seen from behind, USB-C still at the top: the pad names swap sides. -->
+          <svg viewBox="0 0 250 268" aria-hidden="true">
+            <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
+            <g class="pads" data-face="back"></g>
+
+            <!-- USB-C receptacle, with its mounting tabs and contact row -->
+            <g class="metal">
+              <rect x="69" y="26" width="10" height="9" rx="1"/>
+              <rect x="171" y="26" width="10" height="9" rx="1"/>
+              <rect x="69" y="62" width="10" height="9" rx="1"/>
+              <rect x="171" y="62" width="10" height="9" rx="1"/>
+            </g>
+            <rect x="79" y="8" width="92" height="64" rx="4" fill="url(#usbBody)"/>
+            <ellipse cx="104" cy="40" rx="4" ry="3" fill="#6f7276"/>
+            <ellipse cx="146" cy="40" rx="4" ry="3" fill="#6f7276"/>
+            <g class="metal">
+              <rect x="94" y="75" width="2.6" height="5"/><rect x="99.4" y="75" width="2.6" height="5"/>
+              <rect x="104.8" y="75" width="2.6" height="5"/><rect x="110.2" y="75" width="2.6" height="5"/>
+              <rect x="115.6" y="75" width="2.6" height="5"/><rect x="121" y="75" width="2.6" height="5"/>
+              <rect x="126.4" y="75" width="2.6" height="5"/><rect x="131.8" y="75" width="2.6" height="5"/>
+              <rect x="137.2" y="75" width="2.6" height="5"/><rect x="142.6" y="75" width="2.6" height="5"/>
+              <rect x="148" y="75" width="2.6" height="5"/><rect x="153.4" y="75" width="2.6" height="5"/>
+            </g>
+
+            <!-- RESET and BOOT buttons -->
+            <text class="mark" x="44" y="31" text-anchor="middle">RESET</text>
+            <rect class="metal" x="30" y="36" width="28" height="40" rx="2"/>
+            <rect x="35" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
+            <circle cx="44" cy="51" r="5.5" fill="#26282b"/>
+            <text class="mark" x="205" y="31" text-anchor="middle">BOOT</text>
+            <rect class="metal" x="191" y="36" width="28" height="40" rx="2"/>
+            <rect x="196" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
+            <circle cx="205" cy="51" r="5.5" fill="#26282b"/>
+
+            <!-- test pads -->
+            <g fill="#d7b36a">
+              <circle cx="41" cy="91" r="5"/><circle cx="41" cy="113" r="5"/><circle cx="41" cy="132" r="5"/>
+            </g>
+            <text class="mark" x="51" y="94">GND</text>
+            <text class="mark" x="51" y="116">5V</text>
+            <text class="mark" x="51" y="135">Dout</text>
+
+            <!-- ESP32-S3 (turned 45 degrees) and the IMU -->
+            <g transform="translate(130 157) rotate(45)">
+              <rect class="chip" x="-33" y="-33" width="66" height="66" rx="2"/>
+              <circle r="9" fill="none" stroke="#666" stroke-width="1.4"/>
+              <text class="chiptxt" x="0" y="-16" text-anchor="middle">ESP32-S3</text>
+              <text class="chiptxt" x="0" y="23" text-anchor="middle">FH4R2</text>
+            </g>
+            <rect class="chip" x="186" y="109" width="22" height="22" rx="2"/>
+            <text class="chiptxt" x="197" y="122" text-anchor="middle">8658</text>
+            <text class="mark" x="203" y="92" style="font-size: 6px">Y</text>
+            <text class="mark" x="186" y="98" style="font-size: 6px">Z</text>
+            <text class="mark" x="186" y="106" style="font-size: 6px">X</text>
+
+            <!-- crystal, regulator, antenna module, and passives -->
+            <rect x="75" y="198" width="14" height="14" rx="1" fill="#d9c9a0" stroke="#a89868" stroke-width="0.5"/>
+            <rect x="42" y="178" width="20" height="17" rx="1" fill="#0d0d0d"/>
+            <rect class="metal" x="88" y="250" width="60" height="13" rx="1.5"/>
+            <rect x="94" y="252" width="48" height="9" fill="#d6262e"/>
+            <text x="118" y="259.5" text-anchor="middle" fill="#fff" style="font: 700 6.5px system-ui, sans-serif">C3</text>
+            <g class="smd">
+              <rect x="86" y="115" width="6" height="3.5" rx="0.5"/><rect x="95" y="115" width="6" height="3.5" rx="0.5"/>
+              <rect x="104" y="115" width="6" height="3.5" rx="0.5"/><rect x="76" y="137" width="6" height="3.5" rx="0.5"/>
+              <rect x="110" y="189" width="6" height="3.5" rx="0.5"/><rect x="120" y="189" width="6" height="3.5" rx="0.5"/>
+              <rect x="165" y="175" width="6" height="3.5" rx="0.5"/><rect x="180" y="190" width="6" height="3.5" rx="0.5"/>
+              <rect x="176" y="205" width="6" height="3.5" rx="0.5"/><rect x="160" y="210" width="6" height="3.5" rx="0.5"/>
+              <rect x="140" y="222" width="6" height="3.5" rx="0.5"/><rect x="125" y="228" width="6" height="3.5" rx="0.5"/>
+              <rect x="70" y="225" width="6" height="3.5" rx="0.5"/><rect x="60" y="215" width="6" height="3.5" rx="0.5"/>
+              <rect x="155" y="235" width="6" height="3.5" rx="0.5"/><rect x="185" y="225" width="6" height="3.5" rx="0.5"/>
+              <rect x="195" y="160" width="3.5" height="6" rx="0.5"/><rect x="170" y="145" width="3.5" height="6" rx="0.5"/>
+            </g>
+          </svg>
+        </div>
       </div>
-      <div class="face back">
-        <!-- Seen from behind, USB-C still at the top: the pad names swap sides. -->
-        <svg viewBox="0 0 250 268" aria-hidden="true">
-          <rect class="pcb" x="0.4" y="18.4" width="249.2" height="249.2" rx="10"/>
-          <g class="pads" data-face="back"></g>
-
-          <!-- USB-C receptacle, with its mounting tabs and contact row -->
-          <g class="metal">
-            <rect x="69" y="26" width="10" height="9" rx="1"/>
-            <rect x="171" y="26" width="10" height="9" rx="1"/>
-            <rect x="69" y="62" width="10" height="9" rx="1"/>
-            <rect x="171" y="62" width="10" height="9" rx="1"/>
-          </g>
-          <rect x="79" y="8" width="92" height="64" rx="4" fill="url(#usbBody)"/>
-          <ellipse cx="104" cy="40" rx="4" ry="3" fill="#6f7276"/>
-          <ellipse cx="146" cy="40" rx="4" ry="3" fill="#6f7276"/>
-          <g class="metal">
-            <rect x="94" y="75" width="2.6" height="5"/><rect x="99.4" y="75" width="2.6" height="5"/>
-            <rect x="104.8" y="75" width="2.6" height="5"/><rect x="110.2" y="75" width="2.6" height="5"/>
-            <rect x="115.6" y="75" width="2.6" height="5"/><rect x="121" y="75" width="2.6" height="5"/>
-            <rect x="126.4" y="75" width="2.6" height="5"/><rect x="131.8" y="75" width="2.6" height="5"/>
-            <rect x="137.2" y="75" width="2.6" height="5"/><rect x="142.6" y="75" width="2.6" height="5"/>
-            <rect x="148" y="75" width="2.6" height="5"/><rect x="153.4" y="75" width="2.6" height="5"/>
-          </g>
-
-          <!-- RESET and BOOT buttons -->
-          <text class="mark" x="44" y="31" text-anchor="middle">RESET</text>
-          <rect class="metal" x="30" y="36" width="28" height="40" rx="2"/>
-          <rect x="35" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
-          <circle cx="44" cy="51" r="5.5" fill="#26282b"/>
-          <text class="mark" x="205" y="31" text-anchor="middle">BOOT</text>
-          <rect class="metal" x="191" y="36" width="28" height="40" rx="2"/>
-          <rect x="196" y="41" width="18" height="22" rx="2" fill="#aeb1b6"/>
-          <circle cx="205" cy="51" r="5.5" fill="#26282b"/>
-
-          <!-- test pads -->
-          <g fill="#d7b36a">
-            <circle cx="41" cy="91" r="5"/><circle cx="41" cy="113" r="5"/><circle cx="41" cy="132" r="5"/>
-          </g>
-          <text class="mark" x="51" y="94">GND</text>
-          <text class="mark" x="51" y="116">5V</text>
-          <text class="mark" x="51" y="135">Dout</text>
-
-          <!-- ESP32-S3 (turned 45 degrees) and the IMU -->
-          <g transform="translate(130 157) rotate(45)">
-            <rect class="chip" x="-33" y="-33" width="66" height="66" rx="2"/>
-            <circle r="9" fill="none" stroke="#666" stroke-width="1.4"/>
-            <text class="chiptxt" x="0" y="-16" text-anchor="middle">ESP32-S3</text>
-            <text class="chiptxt" x="0" y="23" text-anchor="middle">FH4R2</text>
-          </g>
-          <rect class="chip" x="186" y="109" width="22" height="22" rx="2"/>
-          <text class="chiptxt" x="197" y="122" text-anchor="middle">8658</text>
-          <text class="mark" x="203" y="92" style="font-size: 6px">Y</text>
-          <text class="mark" x="186" y="98" style="font-size: 6px">Z</text>
-          <text class="mark" x="186" y="106" style="font-size: 6px">X</text>
-
-          <!-- crystal, regulator, antenna module, and passives -->
-          <rect x="75" y="198" width="14" height="14" rx="1" fill="#d9c9a0" stroke="#a89868" stroke-width="0.5"/>
-          <rect x="42" y="178" width="20" height="17" rx="1" fill="#0d0d0d"/>
-          <rect class="metal" x="88" y="250" width="60" height="13" rx="1.5"/>
-          <rect x="94" y="252" width="48" height="9" fill="#d6262e"/>
-          <text x="118" y="259.5" text-anchor="middle" fill="#fff" style="font: 700 6.5px system-ui, sans-serif">C3</text>
-          <g class="smd">
-            <rect x="86" y="115" width="6" height="3.5" rx="0.5"/><rect x="95" y="115" width="6" height="3.5" rx="0.5"/>
-            <rect x="104" y="115" width="6" height="3.5" rx="0.5"/><rect x="76" y="137" width="6" height="3.5" rx="0.5"/>
-            <rect x="110" y="189" width="6" height="3.5" rx="0.5"/><rect x="120" y="189" width="6" height="3.5" rx="0.5"/>
-            <rect x="165" y="175" width="6" height="3.5" rx="0.5"/><rect x="180" y="190" width="6" height="3.5" rx="0.5"/>
-            <rect x="176" y="205" width="6" height="3.5" rx="0.5"/><rect x="160" y="210" width="6" height="3.5" rx="0.5"/>
-            <rect x="140" y="222" width="6" height="3.5" rx="0.5"/><rect x="125" y="228" width="6" height="3.5" rx="0.5"/>
-            <rect x="70" y="225" width="6" height="3.5" rx="0.5"/><rect x="60" y="215" width="6" height="3.5" rx="0.5"/>
-            <rect x="155" y="235" width="6" height="3.5" rx="0.5"/><rect x="185" y="225" width="6" height="3.5" rx="0.5"/>
-            <rect x="195" y="160" width="3.5" height="6" rx="0.5"/><rect x="170" y="145" width="3.5" height="6" rx="0.5"/>
-          </g>
-        </svg>
+      <figure class="hud pose" title="The board's axes as you see it: X to the right edge, Y to the bottom edge, Z out of the LEDs. Faded axes point away from you.">
+        <canvas id="pose"></canvas>
+        <figcaption>axes</figcaption>
+      </figure>
+      <figure class="hud gravity" title="What the IMU reports: gravity in the board's frame, i.e. the effects' tiltX/tiltY. The outer ring is 1 g, the inner one 0.5 g. Hollow when face down.">
+        <canvas id="gravity"></canvas>
+        <figcaption>gravity</figcaption>
+      </figure>
+    </div>
+    <div class="panel">
+      <div class="status">
+        <span class="name" id="name">loading…</span>
+        <span class="tilt" id="tilt"></span>
       </div>
-    </div>
-    <figure class="hud pose" title="The board's axes as you see it: X to the right edge, Y to the bottom edge, Z out of the LEDs. Faded axes point away from you.">
-      <canvas id="pose"></canvas>
-      <figcaption>axes</figcaption>
-    </figure>
-    <figure class="hud gravity" title="What the IMU reports: gravity in the board's frame, i.e. the effects' tiltX/tiltY. The outer ring is 1 g, the inner one 0.5 g. Hollow when face down.">
-      <canvas id="gravity"></canvas>
-      <figcaption>gravity</figcaption>
-    </figure>
-  </div>
-  <div class="panel">
-    <div class="status">
-      <span class="name" id="name">loading…</span>
-      <span class="tilt" id="tilt"></span>
-    </div>
-    <div class="controls">
-      <button id="next">Next effect</button>
-      <button id="center">Level</button>
-      <div class="segmented" role="group" aria-label="View">
-        <button data-view="board">Board</button>
-        <button data-view="matrix">Matrix</button>
+      <div class="controls">
+        <button id="next" title="The BOOT button: next effect">Next effect</button>
+        <button id="reset" title="The RESET button: restart the device (effect clock back to 0, first effect)">Reset</button>
+        <button id="center">Level</button>
+        <div class="segmented" role="group" aria-label="View">
+          <button data-view="board">Board</button>
+          <button data-view="matrix">Matrix</button>
+        </div>
+        <button id="view3d" aria-pressed="true">3D</button>
+        <button id="motion" aria-pressed="false" hidden>Device tilt</button>
       </div>
-      <button id="view3d" aria-pressed="true">3D</button>
-      <button id="motion" aria-pressed="false" hidden>Device tilt</button>
+      <p class="help">drag the board (it turns all the way over) or arrows/WASD to tilt · double-click to level · space next effect (BOOT) · colors at full brightness (the board caps them in config.h)</p>
+      <pre class="error" id="error" hidden></pre>
     </div>
-    <p class="help">drag the board (it turns all the way over) or arrows/WASD to tilt · double-click to level · space next effect · colors at full brightness (the board caps them in config.h)</p>
-    <pre class="error" id="error" hidden></pre>
-  </div>
+  </section>
+
+  <aside class="side">
+    <!-- What's running: filled in by the script from the Wasm module's web_info()
+         (src/config.h and the effect registry) and build/info.json (written by
+         web/serve.mjs: git revision, toolchain, sizes, platformio.ini). -->
+    <section class="card info" aria-label="What's running">
+      <details data-section="build" open>
+        <summary>Build <span class="aside">this page</span></summary>
+        <dl id="info-build"></dl>
+      </details>
+      <details data-section="device" open>
+        <summary>Device <span class="aside">emulated</span></summary>
+        <dl id="info-device"></dl>
+      </details>
+      <details data-section="session" open>
+        <summary>Session</summary>
+        <dl id="info-session"></dl>
+      </details>
+      <details data-section="firmware" open>
+        <summary>Firmware <span class="aside" id="firmware-env"></span></summary>
+        <dl id="info-firmware"></dl>
+      </details>
+    </section>
+
+    <!-- The device's serial port: whatever web.cpp prints to stdout. An input
+         line for sending to the device can go under the log. -->
+    <section class="card console" aria-label="Serial console">
+      <header>
+        <strong>Serial</strong>
+        <span id="serial-port">stdout</span>
+        <button id="serial-clear">Clear</button>
+      </header>
+      <pre class="serial" id="serial" role="log" aria-live="polite"></pre>
+    </section>
+  </aside>
 </main>
 
 <script type="module">
-// Same frame step as cfg::kFrameMs. It matters because effects fade once per render.
-const FRAME_MS = 33;
 const KEY_STEP_DEG = 15;  // about 0.26 g near level, close to preview.cpp's 0.25 g steps
 
 // LED layouts, in each view's own units. The board view matches the real
@@ -379,6 +510,7 @@ const poseCanvas = document.getElementById('pose');
 const poseCtx = poseCanvas.getContext('2d');
 const gravityCanvas = document.getElementById('gravity');
 const gravityCtx = gravityCanvas.getContext('2d');
+const serialEl = document.getElementById('serial');
 
 function svgEl(name, attrs, text) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -423,11 +555,47 @@ function showError(text) {
 const events = new EventSource('/events');
 events.addEventListener('reload', () => location.reload());
 events.addEventListener('build-error', (e) => showError(JSON.parse(e.data)));
+let devServer = 'connecting';
+events.addEventListener('open', () => (devServer = 'live'));
+events.addEventListener('error', () => {
+  devServer = events.readyState === EventSource.CLOSED ? 'static' : 'reconnecting';
+});
+
+// Effect time in ms: the device's millis(). It advances at most 100 ms per
+// frame (see tick()), and Reset sets it back to 0.
+let clock = 0, lastNow = null;
+
+// --- serial console ---
+
+// The device's stdout, one line per call, stamped with its uptime like a
+// serial monitor would. Old lines go once there are more than SERIAL_LINES.
+const SERIAL_LINES = 500;
+function serialLine(text, cls) {
+  const atBottom = serialEl.scrollTop + serialEl.clientHeight >= serialEl.scrollHeight - 4;
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  const t = document.createElement('span');
+  t.className = 't';
+  t.textContent = `[${(clock / 1000).toFixed(3).padStart(8)}] `;
+  line.append(t, text);
+  serialEl.append(line);
+  while (serialEl.childElementCount > SERIAL_LINES) serialEl.firstElementChild.remove();
+  if (atBottom) serialEl.scrollTop = serialEl.scrollHeight;
+}
+document.getElementById('serial-clear').addEventListener('click', () => serialEl.replaceChildren());
+
+// build/info.json comes from web/serve.mjs; without it the Build section says so.
+const buildInfoReq = fetch('./build/info.json', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : null))
+  .catch(() => null);
 
 let mod;
 try {
   const { default: createEffects } = await import('./build/effects.mjs');
-  mod = await createEffects();
+  mod = await createEffects({
+    print: (text) => serialLine(text),
+    printErr: (text) => serialLine(text, 'err'),
+  });
 } catch (err) {
   showError(`Could not load build/effects.mjs. Run: node web/serve.mjs\n\n${err}`);
   throw err;
@@ -436,14 +604,25 @@ try {
 const W = mod._web_width();
 const H = mod._web_height();
 const pixelsPtr = mod._web_pixels();
+const boardInfo = JSON.parse(mod.UTF8ToString(mod._web_info()));
+// cfg::kFrameMs. It matters because effects fade once per render.
+const FRAME_MS = boardInfo.frameMs;
 
+const showName = () => (nameEl.textContent = mod.UTF8ToString(mod._web_name()));
 function next() {
   mod._web_next();
-  nameEl.textContent = mod.UTF8ToString(mod._web_name());
+  showName();
+}
+// The RESET button: millis() starts over and setup() runs again.
+function reset() {
+  clock = 0;
+  lastNow = null;
+  mod._web_setup();
+  showName();
 }
 
-mod._web_select(0);
-nameEl.textContent = mod.UTF8ToString(mod._web_name());
+mod._web_setup();
+showName();
 
 // --- board orientation ---
 
@@ -540,6 +719,7 @@ document.addEventListener('keydown', (e) => {
 
 const level = () => { if (!useMotion) leveling = true; };
 document.getElementById('next').addEventListener('click', next);
+document.getElementById('reset').addEventListener('click', reset);
 document.getElementById('center').addEventListener('click', level);
 stage.addEventListener('dblclick', level);
 
@@ -905,14 +1085,149 @@ const signed = (v) => {
   return `${r >= 0 ? '+' : ''}${r.toFixed(2)}`;
 };
 
+// --- info panel ---
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// Rows are [label, value, hint?]. A value is text, a Node, an array of either
+// (one per line), or null for unknown.
+function fillList(dl, rows) {
+  dl.replaceChildren(...rows.flatMap(([label, value, hint]) => {
+    const dd = el('dd');
+    if (value == null) dd.append(el('span', 'note', 'unknown'));
+    else if (Array.isArray(value)) {
+      const ul = el('ul');
+      ul.append(...value.map((v) => { const li = el('li'); li.append(v); return li; }));
+      dd.append(ul);
+    } else dd.append(value);
+    if (hint) dd.title = hint;
+    return [el('dt', null, label), dd];
+  }));
+}
+
+const kb = (n) => (n == null ? '?' : `${(n / 1024).toFixed(1)} KB`);
+const withNote = (text, note) => {
+  const f = document.createDocumentFragment();
+  f.append(text, ' ', el('span', 'note', note));
+  return f;
+};
+
+const build = await buildInfoReq;
+const fw = build?.firmware;
+const cdc = fw?.buildFlags.includes('-DARDUINO_USB_CDC_ON_BOOT=1');
+
+fillList(document.getElementById('info-device'), [
+  ['Board', 'Waveshare ESP32-S3-Matrix'],
+  ['SoC', withNote('ESP32-S3FH4R2', '240 MHz'), 'Dual-core Xtensa LX7, 4 MB flash and 2 MB PSRAM in the package'],
+  ['Memory', `${fw?.flashSize ?? '4MB'} flash · 2MB PSRAM`, fw?.memoryType && `memory_type = ${fw.memoryType}`],
+  ['LEDs', `${boardInfo.width}×${boardInfo.height} WS2812B · GPIO ${boardInfo.ledPin}`, 'cfg::kLedPin; chained row-major from the top-left'],
+  ['Rotation', `${boardInfo.rotation * 90}°`, 'cfg::kRotation, applied in src/display.cpp'],
+  ['Brightness', withNote(`cap ${boardInfo.maxBrightness}/255`, 'shown uncapped'), 'cfg::kMaxBrightness, applied in src/display.cpp'],
+  ['IMU', `QMI8658 · SDA ${boardInfo.imuSda} · SCL ${boardInfo.imuScl}`, 'I2C. Emulated: the tilt is gravity in the board frame, from its 3D orientation'],
+  ['Button', withNote(`BOOT · GPIO ${boardInfo.buttonPin}`, 'space'), 'cfg::kButtonPin'],
+  ['Serial', fw?.monitorSpeed ? `${fw.monitorSpeed} baud${cdc ? ' · USB-CDC' : ''}` : null],
+  ['Frame', `${boardInfo.frameMs} ms (~${Math.round(1000 / boardInfo.frameMs)} fps)`, 'cfg::kFrameMs'],
+]);
+
+document.getElementById('firmware-env').textContent = fw ? `env:${fw.env}` : '';
+if (fw?.monitorSpeed) document.getElementById('serial-port').textContent = `stdout · ${fw.monitorSpeed} baud`;
+fillList(document.getElementById('info-firmware'), [
+  ['Envs', fw && fw.envs.map((e) => (e === fw.env ? `${e} (default)` : e)).join(' · '), 'platformio.ini'],
+  ['Platform', fw && `${fw.platform} · ${fw.framework}`],
+  ['Board def', fw?.board],
+  ['Partitions', fw?.partitions],
+  ['Libraries', fw?.libDeps.length ? fw.libDeps.map((d) => d.replace(/^https:\/\/github\.com\//, '')) : fw && '—'],
+  ['Flags', fw?.buildFlags.length ? fw.buildFlags : fw && '—'],
+  ['Effects', boardInfo.effects.map((n, i) => `${i + 1}. ${n}`), 'kEffects in lib/Effects/src/Effects.cpp, in BOOT button order'],
+]);
+
+const git = build?.git;
+const source = git && document.createDocumentFragment();
+if (git) {
+  source.append(`${git.branch} @ ${git.commit}`);
+  if (git.dirty) source.append(el('span', 'badge warn', 'modified'));
+}
+const devServerEl = el('span');
+fillList(document.getElementById('info-build'), [
+  ['Host', withNote('WebAssembly', build ? build.sources.join(' + ') : 'web/web.cpp')],
+  ['Source', build ? source ?? el('span', 'note', 'not a git checkout') : null, git && (git.dirty ? 'Built with uncommitted changes' : 'Built from a clean checkout')],
+  ['Commit', git && git.subject, git?.date && `committed ${new Date(git.date).toLocaleString()}`],
+  ['Built', build && withNote(new Date(build.builtAt).toLocaleString(), `in ${(build.durationMs / 1000).toFixed(1)} s`)],
+  ['Toolchain', build?.compiler?.match(/\d+\.\d+\.\d+/) ? `Emscripten ${build.compiler.match(/\d+\.\d+\.\d+/)[0]}` : build?.compiler, build?.compiler],
+  ['Compiler', boardInfo.compiler.replace(/\s*\(.*\)\s*$/, ''), boardInfo.compiler],
+  ['Flags', build?.flags.join(' ')],
+  ['Output', build && `effects.wasm ${kb(build.outputs['effects.wasm'])} · .mjs ${kb(build.outputs['effects.mjs'])}`],
+  ['Dev server', devServerEl],
+]);
+if (!build) {
+  document.getElementById('info-build').append(el('dd', 'note wide', 'No build/info.json. Build with node web/serve.mjs to fill this in.'));
+}
+
+// The session rows change, so they keep their value elements and update in tick().
+const live = Object.fromEntries(['effect', 'uptime', 'fps', 'frames', 'view', 'input'].map((k) => [k, el('span')]));
+fillList(document.getElementById('info-session'), [
+  ['Effect', live.effect],
+  ['Uptime', live.uptime, 'millis(): the effect clock, which Reset sets back to 0'],
+  ['Frame rate', live.fps],
+  ['Frames', live.frames],
+  ['View', live.view],
+  ['Input', live.input],
+]);
+
+const DEV_SERVER = {
+  connecting: ['', 'connecting…'],
+  live: ['ok', 'live reload'],
+  reconnecting: ['warn', 'reconnecting…'],
+  static: ['', 'static (no live reload)'],
+};
+let frames = 0, fps = 0, fpsFrames = 0, fpsSince = performance.now(), shownAt = -Infinity;
+function updateSession(now) {
+  fpsFrames++;
+  if (now - fpsSince >= 1000) {
+    fps = fpsFrames * 1000 / (now - fpsSince);
+    fpsFrames = 0;
+    fpsSince = now;
+  }
+  if (now - shownAt < 250) return;
+  shownAt = now;
+  const s = Math.floor(clock / 1000);
+  live.effect.textContent = `${mod.UTF8ToString(mod._web_name())} (${mod._web_index() + 1}/${boardInfo.effects.length})`;
+  live.uptime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  live.fps.textContent = fps ? `${fps.toFixed(1)} fps` : 'measuring…';
+  live.frames.textContent = frames.toLocaleString();
+  live.view.textContent = `${view === 'board' ? 'Board' : 'Matrix'}${view3d ? ' · 3D' : ''}`;
+  live.input.textContent = useMotion ? 'device tilt' : 'drag · keys';
+  const [cls, text] = DEV_SERVER[devServer];
+  devServerEl.replaceChildren(el('span', `dot ${cls}`), text);
+}
+
+// Each details section remembers whether it is open, per browser.
+for (const d of document.querySelectorAll('.info details')) {
+  const key = `matrix-preview.section.${d.dataset.section}`;
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved != null) d.open = saved === '1';
+  } catch {}
+  d.addEventListener('toggle', () => {
+    try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
+  });
+}
+
 // Effect time advances at most 100 ms per frame, so a backgrounded tab doesn't
 // hand Marble a multi-second dt when it comes back.
-let clock = 0, lastNow = null, nextFrame = 0;
+let nextFrame = 0;
 function tick(now) {
   if (now >= nextFrame) {
     nextFrame = now + FRAME_MS;
     clock += lastNow == null ? 0 : Math.min(now - lastNow, 100);
     lastNow = now;
+    frames++;
+    updateSession(now);
     if (leveling) stepLeveling();
     const [tiltX, tiltY] = tiltFromPose();
     mod._web_render(Math.round(clock) >>> 0, tiltX, tiltY);
