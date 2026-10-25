@@ -39,7 +39,7 @@ brew install emscripten   # once
 node web/serve.mjs
 ```
 
-Open http://localhost:8000. The server compiles `lib/Effects/` to WebAssembly and rebuilds and reloads the page whenever you save a file in `lib/Effects/src/` or `web/`. Compile errors show up on the page. Drag the board to turn it, all the way over if you like (double-click to level), or use the same keys as the terminal preview. The tilt the effects see is what the board's sensor would measure in that pose. **Board/Matrix** switches between the realistic board and a plain LED matrix. On a phone or tablet, **Device tilt** uses the device's tilt sensor, but browsers only allow that on HTTPS or localhost. `node web/serve.mjs build` builds once without serving.
+Open http://localhost:8000. The server compiles `lib/Effects/` to WebAssembly and rebuilds and reloads the page whenever you save a file in `lib/Effects/src/` or `web/`. Compile errors show up on the page. Drag the board to turn it, all the way over if you like (double-click to level), or use the same keys as the terminal preview. The tilt the effects see is what the board's sensor would measure in that pose. **Board/Matrix** switches between the realistic board and a plain LED matrix. On a phone or tablet, **Device tilt** uses the device's tilt sensor, but browsers only allow that on HTTPS or localhost. The sidebar shows what's running (the build's git revision, toolchain and size, the emulated board's pins and limits from `src/config.h`, the firmware settings from `platformio.ini`, and live frame rate and uptime) above a serial console with the same output the board prints. **Reset** restarts the emulated device. `node web/serve.mjs build` builds once without serving.
 
 ### 2. Full simulation: Wokwi
 
