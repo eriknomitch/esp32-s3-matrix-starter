@@ -94,6 +94,7 @@ src/imu_mpu6050.cpp Wokwi stand-in IMU (built only with -DSIM)
 preview/            Terminal preview
 web/                Browser preview (WebAssembly host, page, dev server)
 scripts/            Claude cloud environment setup
+docs/ideas/         Effect ideas, each with a prompt for Claude Code
 justfile            Recipes for the common commands (flash, sim, web, check)
 diagram.json        Wokwi circuit
 wokwi.toml          Points Wokwi at .pio/build/sim/firmware.bin
@@ -105,6 +106,8 @@ wokwi.toml          Points Wokwi at .pio/build/sim/firmware.bin
 2. Add it to `kEffects`.
 
 Effects only see a `Frame` plus `Inputs` (time and tilt). Because of that, the same effect works in both previews, in Wokwi, and on the board with no changes.
+
+For ideas, see [`docs/ideas/`](docs/ideas/README.md). Each one comes with a prompt you can paste into Claude Code to build it.
 
 ## Pins (from the board schematic)
 
